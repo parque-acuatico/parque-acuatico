@@ -16,15 +16,17 @@ const DEFAULT_CONFIG = {
   precio_hora: 10000,
   socios: ['Usuario 1'],
   cuenta_debito: '',
-  color_media: 'Verde',
-  color_hora: 'Rojo',
+  color_hora: 'Dorada',
+  colores_media: ['Verde', 'Azul', 'Roja', 'Amarilla', 'Naranja', 'Morada', 'Rosada', 'Blanca'],
   productos: [{ id: 'calcetas', nombre: 'Calcetas', precio: 2000, aviso_bajo: 5 }]
 };
 
 const COLOR_HEX = {
   rojo: '#e53935', azul: '#1e88e5', verde: '#43a047', amarillo: '#fdd835', naranjo: '#fb8c00', naranja: '#fb8c00',
   morado: '#8e24aa', rosado: '#f06292', rosa: '#f06292', blanco: '#fafafa', negro: '#212121', celeste: '#4fc3f7',
-  cafe: '#795548', gris: '#9e9e9e', fucsia: '#d81b60', turquesa: '#26a69a', dorado: '#c9a227',
+  cafe: '#795548', gris: '#9e9e9e', fucsia: '#d81b60', turquesa: '#26a69a', dorado: '#d4a017', dorada: '#d4a017',
+  roja: '#e53935', amarilla: '#fdd835', morada: '#8e24aa', rosada: '#f06292', blanca: '#fafafa', negra: '#212121',
+  plateada: '#b0bec5', celestes: '#4fc3f7',
   plateado: '#b0bec5', lila: '#b39ddb', verdeagua: '#64ffda', verdelimon: '#c0ca33', limon: '#c0ca33'
 };
 
@@ -64,7 +66,38 @@ function toast(msg, tipo) {
 }
 function soltarFoco() { const a = document.activeElement; if (a && a.blur && a !== document.body) a.blur(); }
 const tiempoTxt = m => +m === 60 ? '1 hora' : '½ hora';
-function colorDe(minutos) { return +minutos === 60 ? S.config.color_hora : S.config.color_media; }
+function colorDe(minutos) { return +minutos === 60 ? S.config.color_hora : S.config.colores_media[0]; }
+/* Pulsera de ½ hora: los grupos que entran en el mismo turno comparten color.
+   Cada turno nuevo toma el siguiente color de la lista (después del turno anterior),
+   saltándose los colores que todavía tienen un grupo de ½ hora en el agua. */
+function gruposMediaQueCruzan(entrada, regs, excluirId) {
+  const ent = minutosDe(entrada);
+  return (regs || []).filter(r => r.estado !== 'anulado' && +r.minutos === 30 && r.pulsera && r.id !== excluirId)
+    .filter(r => { const e = minutosDe(r.entrada); return e < ent + 30 && ent < e + 30; });
+}
+function colorMedia(entrada, regs, excluirId) {
+  const lista = S.config.colores_media;
+  const cruzan = gruposMediaQueCruzan(entrada, regs, excluirId);
+  const mismo = cruzan.find(r => r.entrada === entrada);
+  if (mismo) return mismo.pulsera;
+  const usados = new Set(cruzan.map(r => r.pulsera));
+  const ent = minutosDe(entrada);
+  const antes = (regs || []).filter(r => r.estado !== 'anulado' && +r.minutos === 30 && r.pulsera && r.id !== excluirId && minutosDe(r.entrada) < ent)
+    .sort((x, y) => minutosDe(y.entrada) - minutosDe(x.entrada))[0];
+  const desde = antes ? lista.indexOf(antes.pulsera) + 1 : 0;
+  for (let i = 0; i < lista.length; i++) {
+    const c = lista[(desde + i) % lista.length];
+    if (!usados.has(c)) return c;
+  }
+  return lista[desde % lista.length];
+}
+function asignarColores(regs) {
+  regs.slice().sort((a, b) => minutosDe(a.entrada) - minutosDe(b.entrada)).forEach(r => {
+    if (+r.minutos === 30 && !r.pulsera) r.pulsera = colorMedia(r.entrada, regs);
+    else if (+r.minutos === 60 && !r.pulsera) r.pulsera = S.config.color_hora;
+  });
+  return regs;
+}
 function esVenta(r) { return !(+r.personas > 0) || !(+r.minutos > 0); }
 function textoProductos(lista) { return lista.map(p => p.nombre + ' ×' + p.cant).join(', '); }
 
@@ -147,8 +180,8 @@ const S = {
 function normalizarConfig(c) {
   const out = Object.assign({}, DEFAULT_CONFIG, c || {});
   if (!out.socios || !out.socios.length) out.socios = DEFAULT_CONFIG.socios;
-  if (!out.color_media) out.color_media = DEFAULT_CONFIG.color_media;
   if (!out.color_hora) out.color_hora = DEFAULT_CONFIG.color_hora;
+  if (!Array.isArray(out.colores_media) || !out.colores_media.length) out.colores_media = DEFAULT_CONFIG.colores_media;
   if (!Array.isArray(c && c.productos) || !c.productos.length) {
     // servidor antiguo: solo tenía precio de calcetas
     const pc = c && +c.precio_calceta;
@@ -383,7 +416,7 @@ function renderAlerta() {
   const html = `<div class="al-hoja" role="alertdialog" aria-labelledby="al-t">
       <div class="al-icono"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg></div>
       <h2 id="al-t">${S.alertas.length > 1 ? 'Se acabó el tiempo de ' + S.alertas.length + ' grupos' : 'Se acabó el tiempo'}</h2>
-      ${S.alertas.map(r => `<div class="al-grupo" data-key="al-${r.id}"><i style="background:${colorHex(r.pulsera)}"></i><div><b>Pulsera ${esc(r.pulsera)} · ${tiempoTxt(r.minutos)}</b><span>${esc(r.nombre)} · ${r.personas} pers · salida ${esc(r.salida)}</span></div></div>`).join('')}
+      ${S.alertas.map(r => `<div class="al-grupo" data-key="al-${r.id}"><i style="background:${colorHex(r.pulsera)}"></i><div><b>Llama a los de pulsera ${esc(String(r.pulsera).toLowerCase())}</b><span>${esc(r.nombre)}, ${r.personas} ${+r.personas === 1 ? 'persona' : 'personas'} de ${tiempoTxt(r.minutos)}. Salían a las ${esc(r.salida)}.</span></div></div>`).join('')}
       <button class="btn coral big" data-act="alerta-ok">Listo, ya salieron</button>
     </div>`;
   if (el.hidden || !el.firstElementChild) { el.innerHTML = html; el.hidden = false; void el.offsetWidth; el.classList.add('show'); }
@@ -427,7 +460,8 @@ function formDesde(r) {
     personas: +r.personas, nombre: r.nombre, minutos: +r.minutos || 30, items: itemsDesde(r),
     medio: r.medio, cuenta: r.cuenta || '', entrada: r.entrada, entradaAuto: false, obs: r.obs || '',
     devolucion: +r.devolucion ? String(r.devolucion) : '', devolucionDesde: r.devolucionDesde || 'Efectivo',
-    precioPersona: +r.precioPersona || Calc.precioPersona(S.config, +r.minutos || 30)
+    precioPersona: +r.precioPersona || Calc.precioPersona(S.config, +r.minutos || 30),
+    pulsera: +r.minutos === 30 ? r.pulsera : '', pulseraManual: +r.minutos === 30 && !!r.pulsera
   };
 }
 function entradaAutoActiva() { return S.form.entradaAuto && !S.editId && S.fecha === hoy(); }
@@ -461,13 +495,15 @@ function guardarGrupo() {
   const entrada = venta ? (prev ? prev.entrada : (S.fecha === hoy() ? ahoraHM() : f.entrada))
     : (entradaAutoActiva() ? entradaPropuesta() : f.entrada);
   const minutos = venta ? 0 : +f.minutos;
+  const pulsera = venta ? '' : minutos === 60 ? S.config.color_hora
+    : (f.pulseraManual && f.pulsera ? f.pulsera : colorMedia(entrada, S.registros, prev && prev.id));
   const dev = Math.max(0, parseInt(String(f.devolucion).replace(/\D/g, ''), 10) || 0);
   const calc = productos.find(p => p.id === 'calcetas');
   const rec = Object.assign({}, prev || {}, {
     id: prev ? prev.id : uid(),
     fecha: S.fecha,
     entrada, salida: venta ? '' : sumarMin(entrada, minutos),
-    personas: +f.personas, nombre, pulsera: venta ? '' : colorDe(minutos), minutos,
+    personas: +f.personas, nombre, pulsera, minutos,
     productos,
     calcetas: calc ? calc.cant : 0, precioCalceta: calc ? calc.precio : 0,
     medio: f.medio, cuenta: f.medio === 'Transferencia' ? f.cuenta : '',
@@ -660,7 +696,7 @@ function cargarEjemplo() {
     const prods = f[3] ? [{ id: pc.id, nombre: pc.nombre, cant: f[3], precio: pc.precio }] : [];
     const rec = {
       id: uid() + i, fecha: S.fecha, entrada: f[6], salida: sumarMin(f[6], f[2]), personas: f[0], nombre: f[1],
-      pulsera: colorDe(f[2]), minutos: f[2], productos: prods, calcetas: f[3], precioCalceta: pc.precio,
+      pulsera: f[2] === 60 ? c.color_hora : '', minutos: f[2], productos: prods, calcetas: f[3], precioCalceta: pc.precio,
       medio: f[4], cuenta: f[5], precioPersona: Calc.precioPersona(c, f[2]),
       obs: f[7] ? 'Pagó 1 hora y se cambió a ½ hora + 1 calceta' : '',
       devolucion: f[7] || 0, devolucionDesde: f[7] ? 'Efectivo' : '', estado: 'ok',
@@ -669,6 +705,7 @@ function cargarEjemplo() {
     rec.total = Calc.totalGrupo(rec);
     S.registros.push(rec);
   });
+  asignarColores(S.registros);
   S.gastos.push({ id: uid(), fecha: S.fecha, concepto: 'Almuerzos (3)', monto: 15000, pagadoDesde: 'Efectivo', estado: 'ok', creadoPor: S.user.nombre, creadoEn: nowLocal() });
   saveDay(); toast('Día de ejemplo cargado (planilla del 9 de marzo)', 'ok'); renderTab();
 }
@@ -702,7 +739,7 @@ function sembrarPrueba(soloEscena) {
     const quien = o.quien || elegir(usuarios);
     const rec = {
       id: uid() + (++n), fecha, entrada, salida: minutos ? sumarMin(entrada, minutos) : '',
-      personas, nombre: o.nombre || 'Grupo ' + (++numGrupo), pulsera: minutos ? colorDe(minutos) : '', minutos,
+      personas, nombre: o.nombre || 'Grupo ' + (++numGrupo), pulsera: minutos === 60 ? c.color_hora : '', minutos,
       productos: cant ? [{ id: pc.id, nombre: pc.nombre, cant, precio: pc.precio }] : [],
       calcetas: cant, precioCalceta: cant ? pc.precio : 0,
       medio, cuenta: medio === 'Transferencia' ? (o.cuenta || elegir(socios)) : '',
@@ -740,7 +777,7 @@ function sembrarPrueba(soloEscena) {
   if (soloEscena) {
     const d = LS.get('pa_day_' + hoy(), null);
     if (!d || (d.cierre && d.cierre.estado !== 'reabierta')) return;
-    d.registros = (d.registros || []).filter(r => !r.demoVivo).concat(vivos(hoy()));
+    d.registros = asignarColores((d.registros || []).filter(r => !r.demoVivo).concat(vivos(hoy())));
     LS.set('pa_day_' + hoy(), d);
     return;
   }
@@ -751,6 +788,7 @@ function sembrarPrueba(soloEscena) {
   for (let m = 11 * 60; m <= 19 * 60; m += 25 + Math.floor(azar() * 25)) r2.push(grupo(f2, Math.ceil(m / 5) * 5));
   r2.push(grupo(f2, 15 * 60 + 12, { personas: 0, calcetas: 2, nombre: 'Compra de calcetas', medio: 'Efectivo' }));
   const g2 = [gasto(f2, 14 * 60, 'Almuerzo (3)', 15000), gasto(f2, 10 * 60 + 40, 'Bencina generador', 12000, socios[socios.length - 1])];
+  asignarColores(r2);
   guardarDia(f2, { registros: r2, gastos: g2, inventario: [movimiento(f2, 10 * 60 + 45, 'inicial', 40, 'Conteo al abrir')], cierre: cerrar(f2, r2, g2, usuarios[0], 19 * 60 + 45) });
 
   // Ayer: con llegada de mercadería, una devolución, un anulado y una diferencia en el conteo
@@ -762,6 +800,7 @@ function sembrarPrueba(soloEscena) {
   const g1 = [gasto(f1, 13 * 60 + 30, 'Almuerzo (2)', 10000), gasto(f1, 12 * 60, 'Hielo', 3000)];
   const i1 = [movimiento(f1, 12 * 60 + 30, 'ingreso', 20, 'Llegó pedido', usuarios[1]),
     movimiento(f1, 19 * 60 + 30, 'ajuste', -1, 'Conteo: faltó 1 (se mojó y se botó)', usuarios[1])];
+  asignarColores(r1);
   guardarDia(f1, { registros: r1, gastos: g1, inventario: i1, cierre: cerrar(f1, r1, g1, usuarios[1], 19 * 60 + 50) });
 
   // Hoy: algunos terminados, dos en el agua (uno a punto de salir, para ver la alerta) y uno por entrar
@@ -769,13 +808,14 @@ function sembrarPrueba(soloEscena) {
   const r0 = [];
   for (let m = Math.max(10 * 60 + 30, ahora - 200); m <= ahora - 45; m += 30 + Math.floor(azar() * 15)) r0.push(grupo(f0, Math.floor(m / 5) * 5));
   vivos(f0).forEach(g => r0.push(g));
+  asignarColores(r0);
   guardarDia(f0, { registros: r0, gastos: [gasto(f0, Math.max(ahora - 60, 10 * 60), 'Almuerzo (2)', 10000)], inventario: [] });
 
   // Los grupos que ya terminaron antes de abrir la prueba no hacen sonar la alerta
   const vistos = {};
   r0.forEach(r => { if (r.minutos && minutosDe(r.entrada) + r.minutos <= ahora) vistos[r.id + '@' + r.salida] = 1; });
   LS.set('pa_avisos_' + f0, vistos);
-  LS.set('pa_semilla', { v: 3, fecha: f0 });
+  LS.set('pa_semilla', { v: 4, fecha: f0 });
 }
 
 /* ---------- login ---------- */
@@ -1009,8 +1049,10 @@ function vistaRegistrar() {
   prods.forEach(p => detalle.push(p.cant + ' ' + p.nombre.toLowerCase()));
   let n = 0;
 
+  const colMedia = f.pulseraManual && f.pulsera ? f.pulsera : colorMedia(entrada, S.registros, S.editId);
+  const cruzan = gruposMediaQueCruzan(entrada, S.registros, S.editId).filter(r => r.entrada !== entrada);
   const tiempoTile = (min, precio) => {
-    const col = colorDe(min);
+    const col = min === 60 ? c.color_hora : colMedia;
     return `<button type="button" class="tile tiempo ${+f.minutos === min ? 'on' : ''}" data-act="set" data-f="minutos" data-v="${min}">
       ${pulseraVis(col)}
       <b>${tiempoTxt(min)}</b>
@@ -1033,7 +1075,15 @@ function vistaRegistrar() {
       <input id="f-entrada" class="hora" type="time" step="300" data-field="entrada" value="${esc(entrada)}" aria-label="Hora de entrada">
       <span>y salen a las</span><b>${salida}</b>
     </div>
-    ${auto ? `<p class="ayuda" data-key="ayuda-hora">Son las ${ahoraHM()}. El turno parte a los 5 minutos siguientes.</p>` : ''}`, 'p-tiempo'));
+    ${auto ? `<p class="ayuda" data-key="ayuda-hora">Son las ${ahoraHM()}. El turno parte a los 5 minutos siguientes.</p>` : ''}
+    ${+f.minutos === 30 ? `<div class="sub" data-key="pulseras">
+      <p class="sub-t">Pulsera de ½ hora${f.pulseraManual ? ' (elegida a mano)' : ''}</p>
+      <div class="colores-media">${c.colores_media.map(col => {
+        const ocupado = cruzan.find(r => r.pulsera === col);
+        return `<button type="button" class="col-chip ${col === colMedia ? 'on' : ''} ${ocupado ? 'ocupado' : ''}" data-act="pulsera" data-v="${esc(col)}" title="${ocupado ? 'En el agua hasta ' + esc(ocupado.salida) : ''}"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span>${ocupado ? `<small>sale ${esc(ocupado.salida)}</small>` : ''}</button>`;
+      }).join('')}</div>
+      ${cruzan.length ? '<p class="ayuda">Los marcados con hora todavía tienen un grupo de ½ hora en el agua. Conviene un color distinto para no confundirlos al llamarlos.</p>' : ''}
+    </div>` : ''}`, 'p-tiempo'));
   pasos.push(paso(++n, 'Productos', `<div class="prods">${f.items.map(i => {
     const s = st[i.id], pinfo = productoPorId(i.id);
     let q;
@@ -1322,6 +1372,7 @@ const ACT = {
     if (f === 'personas' && S.form.personas > 0 && !(+S.form.precioPersona)) S.form.precioPersona = Calc.precioPersona(S.config, S.form.minutos);
     renderTab();
   },
+  pulsera(v) { S.form.pulsera = v; S.form.pulseraManual = true; renderTab(); },
   pstep(v, el) {
     const it = S.form.items.find(i => i.id === el.dataset.f); if (!it) return;
     it.cant = Math.max(0, (+it.cant || 0) + (+v));
@@ -1358,7 +1409,7 @@ const ACT = {
     const pc = S.config.productos[0];
     const rec = {
       id: uid(), fecha: S.fecha, entrada, salida: sumarMin(entrada, 30), personas: 2, nombre: 'Prueba de alerta',
-      pulsera: colorDe(30), minutos: 30, productos: [], calcetas: 0, precioCalceta: pc ? pc.precio : 0,
+      pulsera: colorMedia(entrada, S.registros), minutos: 30, productos: [], calcetas: 0, precioCalceta: pc ? pc.precio : 0,
       medio: 'Efectivo', cuenta: '', precioPersona: S.config.precio_media, obs: '', devolucion: 0, devolucionDesde: '',
       estado: 'ok', demoVivo: true, creadoPor: S.user.nombre, creadoEn: nowLocal()
     };
@@ -1415,7 +1466,7 @@ setInterval(() => { if (S.user) sync(); }, 30000);
 /* ---------- inicio ---------- */
 if (PRUEBA) {
   const sem = LS.get('pa_semilla', null);
-  if (!sem || sem.v !== 3 || sem.fecha !== hoy()) {
+  if (!sem || sem.v !== 4 || sem.fecha !== hoy()) {
     // Primera vez, o es otro día: se arman los tres días de nuevo (se mantiene la sesión si el usuario existe)
     const u = LS.get('pa_user', null);
     borrarPrueba();

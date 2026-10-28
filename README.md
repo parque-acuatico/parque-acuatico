@@ -5,7 +5,7 @@ App para el celular que reemplaza la planilla de caja en papel. Registra cada gr
 ## Qué hace
 
 - **Registrar**: personas, nombre, tiempo (½ h / 1 h), productos y medio de pago. Si es transferencia, a qué cuenta llegó. La hora de entrada se toma sola y la salida se calcula.
-- **Pulseras**: el color depende del tiempo (uno para ½ hora y otro para 1 hora). Se configura en `Config` (`color_media`, `color_hora`) y la app lo asigna sola.
+- **Pulseras**: 1 hora es siempre dorada. La de ½ hora va cambiando según el horario: la app propone un color distinto al de los grupos de ½ hora que siguen en el agua (los que entran en el mismo turno comparten color), y se puede cambiar con un toque. Así se llama a salir por color. Se configura en `Config` (`color_hora`, `colores_media`).
 - **Productos**: en el mismo registro del grupo se suman las calcetas u otros productos al total. Con 0 personas queda como venta suelta (alguien que solo compra).
 - **Inventario**: stock de cada producto en el día. Las ventas se descuentan solas; se registra el stock al abrir, la mercadería que llega y los conteos (si no cuadra, se corrige y queda anotada la diferencia). Lo que queda pasa al día siguiente.
 - **Horario de 5 en 5**: la entrada se redondea a los 5 minutos siguientes (si son las 10:51, el turno parte a las 10:55).
@@ -85,7 +85,7 @@ Dónde vive cada cosa:
 | Pestaña | Para qué |
 |---|---|
 | `Usuarios` | Nombre, PIN, rol y activo (si/no). **Cambia los PIN de ejemplo (1111 y 2222).** Para sacar a alguien, pon `no` en activo. Solo quienes tienen rol `admin` pueden reabrir una caja cerrada; para el resto escribe `cajero`. |
-| `Config` | Precios de entrada (`precio_media`, `precio_hora`), colores de pulsera (`color_media`, `color_hora`), socios y cuenta del débito. Los cambios llegan a los teléfonos en la siguiente sincronización. (Si quedó una fila `precio_calceta` o `colores` de la versión anterior, ya no se usa.) |
+| `Config` | Precios de entrada (`precio_media`, `precio_hora`), colores de pulsera (`color_hora` para 1 hora; `colores_media` con la lista de colores de ½ hora), socios y cuenta del débito. Los cambios llegan a los teléfonos en la siguiente sincronización. (Si quedó una fila `precio_calceta` o `colores` de la versión anterior, ya no se usa.) |
 | `Productos` | Lo que se vende: `id` (una palabra, sin espacios, no cambiarlo después), `nombre`, `precio`, `activo` (si/no), `aviso_bajo` (avisa cuando quedan esa cantidad o menos) y `orden`. Para vender algo nuevo, agrega una fila. |
 | `Registros` | Un grupo o venta por fila. Cada fila guarda el precio que se cobró, así cambiar precios no altera días pasados. La columna `productos` dice qué compró. |
 | `Inventario` | Movimientos de stock: stock al abrir, llegadas de mercadería y correcciones por conteo, con quién los hizo. |
