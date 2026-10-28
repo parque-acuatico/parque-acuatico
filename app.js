@@ -882,11 +882,43 @@ function vistaLogin() {
   </div>`;
 }
 
+/* Tira de días: los últimos 7 días a un toque, y el calendario para cualquier otro */
+function fechaMas(n) { const d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function tiraDias() {
+  const CORTO = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const dias = [];
+  for (let i = 6; i >= 0; i--) dias.push({ f: fechaMas(-i), i });
+  const fuera = !dias.some(d => d.f === S.fecha);
+  const cerradoEn = f => { const d = LS.get('pa_day_' + f, null); return !!(d && d.cierre && d.cierre.estado !== 'reabierta'); };
+  const fd = new Date(S.fecha + 'T12:00:00');
+  return `<div class="dias" role="group" aria-label="Elegir día">
+    ${dias.map(d => {
+      const dt = new Date(d.f + 'T12:00:00');
+      const etiqueta = d.i === 0 ? 'Hoy' : d.i === 1 ? 'Ayer' : CORTO[dt.getDay()];
+      return `<button class="dia ${d.f === S.fecha ? 'on' : ''}" data-act="dia" data-v="${d.f}" aria-pressed="${d.f === S.fecha}">
+        <small>${etiqueta}</small><b>${dt.getDate()}</b>${cerradoEn(d.f) ? '<i class="d-lock" title="Caja cerrada"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></i>' : ''}</button>`;
+    }).join('')}
+    <label class="dia cal ${fuera ? 'on' : ''}" title="Elegir otra fecha">
+      <input type="date" id="fecha" value="${S.fecha}" max="${hoy()}" aria-label="Elegir otra fecha">
+      <small>${fuera ? CORTO[fd.getDay()] + ' ' + fd.getDate() : 'Otro'}</small>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+    </label>
+  </div>`;
+}
+function cambiarDia(f) {
+  if (!f || f === S.fecha) return;
+  const dir = f > S.fecha ? 'der' : 'izq';
+  S.fecha = f; S.editId = null; loadDay(); S.form = nuevoForm();
+  render(); sync();
+  const m = $('#main');
+  if (m && !REDUCE) { m.classList.remove('in-der', 'in-izq'); void m.offsetWidth; m.classList.add('in-' + dir); }
+}
+
 function renderHeader() {
   const h = $('#hdr'); if (!h || !S.user) return;
   const n = getQueue().length;
   const st = {
-    demo: ['demo', 'Modo de prueba'], idle: ['pend', 'Conectando'], sync: ['sync', 'Guardando…'],
+    demo: ['demo', PRUEBA ? 'Prueba' : 'Sin planilla'], idle: ['pend', 'Conectando'], sync: ['sync', 'Guardando…'],
     ok: ['ok', 'Guardado en la planilla'], pending: ['pend', n + ' por guardar'],
     offline: ['off', 'Sin señal' + (n ? ', ' + n + ' por guardar' : '')],
     error: ['err', 'No se pudo guardar']
@@ -897,12 +929,12 @@ function renderHeader() {
         <div class="brand">${iconoOla(30)}<span>Parque Acuático</span></div>
         <button class="user" data-act="logout" title="Cerrar sesión"><span class="avatar">${inicial(S.user.nombre)}</span><span>${esc(S.user.nombre)}</span></button>
       </div>
-      <label class="fecha">
-        <input type="date" id="fecha" value="${S.fecha}" aria-label="Cambiar día">
+      <div class="f-titulo">
         <span class="f-dia">${esc(fechaLarga(S.fecha))}</span>
-        <span class="f-cambiar">${esHoy ? 'Hoy' : 'Otro día'} · cambiar</span>
-      </label>
-      <button class="sync s-${st[0]}" data-act="sync" title="${esc(S.syncError || '')}">${esc(st[1])}</button>
+        <button class="sync s-${st[0]}" data-act="sync" title="${esc(S.syncError || '')}">${esc(st[1])}</button>
+      </div>
+      ${tiraDias()}
+      ${!esHoy ? '<button class="volver-hoy" data-act="ir-hoy">Volver a hoy</button>' : ''}
     </div>
     <svg class="ola" viewBox="0 0 400 28" preserveAspectRatio="none" aria-hidden="true"><path d="M0 0H400V12C350 28 300 28 250 16S150 0 100 10 30 24 0 16Z"/></svg>`);
 }
@@ -1295,7 +1327,8 @@ const ACT = {
   'alerta-ok': cerrarAlerta,
   cerrar: cerrarCaja,
   reabrir: reabrirCaja,
-  'ir-hoy'() { S.fecha = hoy(); S.editId = null; loadDay(); S.form = nuevoForm(); render(); sync(); },
+  'ir-hoy'() { cambiarDia(hoy()); },
+  dia(v) { cambiarDia(v); },
   compartir,
   ejemplo: cargarEjemplo,
   'reiniciar-prueba'() {
@@ -1320,9 +1353,7 @@ document.addEventListener('input', e => {
   if (t.dataset.ifield) S.iform[t.dataset.ifield] = t.value;
 });
 document.addEventListener('change', e => {
-  if (e.target.id === 'fecha' && e.target.value) {
-    S.fecha = e.target.value; S.editId = null; loadDay(); S.form = nuevoForm(); render(); sync();
-  }
+  if (e.target.id === 'fecha' && e.target.value) cambiarDia(e.target.value > hoy() ? hoy() : e.target.value);
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'lp') login();
