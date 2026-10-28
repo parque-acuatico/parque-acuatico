@@ -681,7 +681,7 @@ function borrarPrueba() {
     ks.forEach(k => localStorage.removeItem(k));
   } catch (e) { }
 }
-function sembrarPrueba() {
+function sembrarPrueba(soloEscena) {
   const c = S.config, socios = c.socios, pc = c.productos[0];
   const usuarios = USUARIOS_PRUEBA;
   let numGrupo = 0;
@@ -701,7 +701,7 @@ function sembrarPrueba() {
     const entrada = hm(minEntrada);
     const quien = o.quien || elegir(usuarios);
     const rec = {
-      id: 'demo' + (++n), fecha, entrada, salida: minutos ? sumarMin(entrada, minutos) : '',
+      id: uid() + (++n), fecha, entrada, salida: minutos ? sumarMin(entrada, minutos) : '',
       personas, nombre: o.nombre || 'Grupo ' + (++numGrupo), pulsera: minutos ? colorDe(minutos) : '', minutos,
       productos: cant ? [{ id: pc.id, nombre: pc.nombre, cant, precio: pc.precio }] : [],
       calcetas: cant, precioCalceta: cant ? pc.precio : 0,
@@ -710,16 +710,17 @@ function sembrarPrueba() {
       devolucion: o.devolucion || 0, devolucionDesde: o.devolucion ? 'Efectivo' : '',
       estado: o.estado || 'ok', creadoPor: quien, creadoEn: fecha + ' ' + hm(minEntrada - 3) + ':00'
     };
+    if (o.vivo) rec.demoVivo = true;
     if (o.estado === 'anulado') { rec.editadoPor = elegir(usuarios); rec.editadoEn = fecha + ' ' + hm(minEntrada + 2) + ':00'; }
     rec.total = Calc.totalGrupo(rec);
     return rec;
   };
   const movimiento = (fecha, minuto, tipo, cantidad, nota, quien) => ({
-    id: 'demo-m' + (++n), fecha, producto: pc.id, tipo, cantidad, nota: nota || '', estado: 'ok',
+    id: uid() + 'm' + (++n), fecha, producto: pc.id, tipo, cantidad, nota: nota || '', estado: 'ok',
     creadoPor: quien || usuarios[0], creadoEn: fecha + ' ' + hm(minuto) + ':00'
   });
   const gasto = (fecha, minuto, concepto, monto, desde) => ({
-    id: 'demo-g' + (++n), fecha, concepto, monto, pagadoDesde: desde || 'Efectivo', estado: 'ok',
+    id: uid() + 'g' + (++n), fecha, concepto, monto, pagadoDesde: desde || 'Efectivo', estado: 'ok',
     creadoPor: elegir(usuarios), creadoEn: fecha + ' ' + hm(minuto) + ':00'
   });
   const cerrar = (fecha, regs, gastos, quien, minuto) => {
@@ -727,6 +728,22 @@ function sembrarPrueba() {
     return { fecha, estado: 'cerrada', cerradoPor: quien, cerradoEn: fecha + ' ' + hm(minuto) + ':00', neto: r.netoTotal, totalBruto: r.bruto };
   };
   const guardarDia = (fecha, d) => LS.set('pa_day_' + fecha, Object.assign({ registros: [], gastos: [], inventario: [], cierre: null, stockPrevio: null }, d));
+
+  // Grupos "vivos" de hoy, armados según la hora en que se abre la prueba:
+  // uno que sale en 2 a 6 minutos (para que suene la alerta), uno de 1 hora recién entrado y uno por entrar.
+  const ahora = minutosDe(ahoraHM());
+  const vivos = f => [
+    grupo(f, Math.ceil((ahora - 28) / 5) * 5, { vivo: true, personas: 3, minutos: 30, calcetas: 2, nombre: 'Grupo familiar', medio: 'Efectivo' }),
+    grupo(f, Math.floor((ahora - 12) / 5) * 5, { vivo: true, personas: 6, minutos: 60, calcetas: 0, nombre: 'Cumpleaños', medio: 'Transferencia', cuenta: socios[0] }),
+    grupo(f, Math.ceil((ahora + 1) / 5) * 5, { vivo: true, personas: 2, minutos: 30, calcetas: 2, nombre: 'Grupo por entrar', medio: 'Débito' })
+  ];
+  if (soloEscena) {
+    const d = LS.get('pa_day_' + hoy(), null);
+    if (!d || (d.cierre && d.cierre.estado !== 'reabierta')) return;
+    d.registros = (d.registros || []).filter(r => !r.demoVivo).concat(vivos(hoy()));
+    LS.set('pa_day_' + hoy(), d);
+    return;
+  }
 
   // Anteayer: día completo, ya cerrado
   const f2 = fechaMas(-2); numGrupo = 0;
@@ -749,19 +766,16 @@ function sembrarPrueba() {
 
   // Hoy: algunos terminados, dos en el agua (uno a punto de salir, para ver la alerta) y uno por entrar
   const f0 = fechaMas(0); numGrupo = 0;
-  const ahora = minutosDe(ahoraHM());
   const r0 = [];
   for (let m = Math.max(10 * 60 + 30, ahora - 200); m <= ahora - 45; m += 30 + Math.floor(azar() * 15)) r0.push(grupo(f0, Math.floor(m / 5) * 5));
-  r0.push(grupo(f0, Math.ceil((ahora - 28) / 5) * 5, { personas: 3, minutos: 30, calcetas: 2, nombre: 'Grupo familiar', medio: 'Efectivo' }));
-  r0.push(grupo(f0, Math.floor((ahora - 12) / 5) * 5, { personas: 6, minutos: 60, calcetas: 0, nombre: 'Cumpleaños', medio: 'Transferencia', cuenta: socios[0] }));
-  r0.push(grupo(f0, minutosDe(entradaPropuesta()), { personas: 2, minutos: 30, calcetas: 2, nombre: 'Grupo por entrar', medio: 'Débito' }));
+  vivos(f0).forEach(g => r0.push(g));
   guardarDia(f0, { registros: r0, gastos: [gasto(f0, Math.max(ahora - 60, 10 * 60), 'Almuerzo (2)', 10000)], inventario: [] });
 
   // Los grupos que ya terminaron antes de abrir la prueba no hacen sonar la alerta
   const vistos = {};
   r0.forEach(r => { if (r.minutos && minutosDe(r.entrada) + r.minutos <= ahora) vistos[r.id + '@' + r.salida] = 1; });
   LS.set('pa_avisos_' + f0, vistos);
-  LS.set('pa_semilla', 2);
+  LS.set('pa_semilla', { v: 3, fecha: f0 });
 }
 
 /* ---------- login ---------- */
@@ -1127,7 +1141,11 @@ function vistaDia() {
   const enAgua = grupos.agua.reduce((s, x) => s + (+x.personas), 0);
   const esHoy = S.fecha === hoy();
 
-  return `<section class="cifras" data-key="cifras">
+  const probar = PRUEBA && esHoy && !diaCerrado() ? `<section class="prueba-pie" data-key="probar-alerta">
+      <p><b>¿Quieres ver la alerta?</b> Crea un grupo que termina en 1 minuto. Deja la app abierta y con volumen.</p>
+      <button class="btn coral" data-act="probar-alerta">Probar la alerta</button>
+    </section>` : '';
+  return `${probar}<section class="cifras" data-key="cifras">
       ${esHoy ? `<div class="c-agua"><b>${cnt(enAgua, 'n')}</b><small>${enAgua === 1 ? 'persona' : 'personas'} en el agua</small></div>` : ''}
       <div><b>${cnt(r.grupos, 'n')}</b><small>grupos, ${r.personas} personas</small></div>
       <div><b>${cnt(r.recaudado)}</b><small>recaudado</small></div>
@@ -1332,6 +1350,23 @@ const ACT = {
   dia(v) { cambiarDia(v); },
   compartir,
   ejemplo: cargarEjemplo,
+  'probar-alerta'() {
+    audioCtx(); pedirPermisoNotif();
+    const ahora = segAhora();
+    const entradaMin = Math.floor((ahora + 60) / 60) - 30;    // sale al cambiar el próximo minuto
+    const entrada = pad(Math.floor(((entradaMin % 1440) + 1440) % 1440 / 60)) + ':' + pad(((entradaMin % 60) + 60) % 60);
+    const pc = S.config.productos[0];
+    const rec = {
+      id: uid(), fecha: S.fecha, entrada, salida: sumarMin(entrada, 30), personas: 2, nombre: 'Prueba de alerta',
+      pulsera: colorDe(30), minutos: 30, productos: [], calcetas: 0, precioCalceta: pc ? pc.precio : 0,
+      medio: 'Efectivo', cuenta: '', precioPersona: S.config.precio_media, obs: '', devolucion: 0, devolucionDesde: '',
+      estado: 'ok', demoVivo: true, creadoPor: S.user.nombre, creadoEn: nowLocal()
+    };
+    rec.total = Calc.totalGrupo(rec);
+    guardarLocal('registro', rec);
+    toast('Listo: a las ' + rec.salida + ' suena la alerta', 'ok');
+    renderTab();
+  },
   'reiniciar-prueba'() {
     if (!confirm('¿Volver a los días de prueba originales? Se borra lo que hayas registrado en esta prueba.')) return;
     borrarPrueba(); location.reload();
@@ -1378,7 +1413,16 @@ setInterval(() => {
 setInterval(() => { if (S.user) sync(); }, 30000);
 
 /* ---------- inicio ---------- */
-if (PRUEBA && LS.get('pa_semilla', null) !== 2) { borrarPrueba(); S.user = null; sembrarPrueba(); }
+if (PRUEBA) {
+  const sem = LS.get('pa_semilla', null);
+  if (!sem || sem.v !== 3 || sem.fecha !== hoy()) {
+    // Primera vez, o es otro día: se arman los tres días de nuevo (se mantiene la sesión si el usuario existe)
+    const u = LS.get('pa_user', null);
+    borrarPrueba();
+    if (u && USUARIOS_PRUEBA.indexOf(u.nombre) >= 0) LS.set('pa_user', u); else S.user = null;
+    sembrarPrueba();
+  } else sembrarPrueba(true);   // mismo día: solo se rearman los grupos en el agua según la hora actual
+}
 loadDay();
 if (S.user) S.form = nuevoForm();
 render();
