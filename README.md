@@ -16,6 +16,14 @@ App para el celular que reemplaza la planilla de caja en papel. Registra cada gr
 - **Quién hizo qué**: cada persona entra con su nombre y PIN. Todo queda firmado, y la pestaña `Historial` de la planilla guarda cada creación, edición y anulación con el detalle de lo que cambió.
 - **Sin señal**: los registros se guardan en el teléfono y se envían solos cuando vuelve la conexión.
 
+## Versión de prueba para mostrar la app
+
+Agrega `?demo=1` al final de la dirección, por ejemplo `https://parque-acuatico-caja.github.io/?demo=1`.
+- Trae tres días inventados: anteayer y ayer cerrados, y hoy con grupos terminados, dos en el agua (uno sale a los pocos minutos, para ver la alerta) y uno por entrar.
+- Todo queda solo en el teléfono de quien prueba, separado de los datos reales: no escribe en la planilla ni crea archivos en Drive.
+- Al final de la pestaña Caja hay un botón para volver a los días de prueba originales.
+- Quien pruebe no debería agregarla a la pantalla de inicio desde ese link: el ícono abre la versión real.
+
 ## Probarla ya (modo demo)
 
 Con `config.js` vacío la app funciona en modo demo: los datos quedan solo en ese teléfono. En "Grupos del día" hay un botón para cargar la planilla del 9 de marzo y comprobar que los números coinciden.

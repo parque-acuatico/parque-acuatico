@@ -4,7 +4,9 @@
    ========================================================= */
 
 const API_URL = ((window.APP_CONFIG || {}).API_URL || '').trim();
-const DEMO = !API_URL;
+// Modo de prueba: se abre con ?demo=1 en la dirección. Trae días inventados y no toca la planilla real.
+const PRUEBA = /[?&]demo=1(&|$)/.test(location.search);
+const DEMO = !API_URL || PRUEBA;
 const TABS = ['registrar', 'dia', 'inventario', 'caja'];
 const REDUCE = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
@@ -27,10 +29,13 @@ const COLOR_HEX = {
 
 /* ---------- utilidades ---------- */
 const $ = s => document.querySelector(s);
+// En modo de prueba todo se guarda con otro prefijo, así nunca se mezcla con los datos reales del teléfono.
+const PREF = PRUEBA ? 'pademo_' : 'pa_';
+const clave = k => PRUEBA ? k.replace(/^pa_/, PREF) : k;
 const LS = {
-  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sin espacio */ } },
-  del(k) { try { localStorage.removeItem(k); } catch (e) { } }
+  get(k, d) { try { const v = localStorage.getItem(clave(k)); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(clave(k), JSON.stringify(v)); } catch (e) { /* sin espacio */ } },
+  del(k) { try { localStorage.removeItem(clave(k)); } catch (e) { } }
 };
 const pad = n => String(n).padStart(2, '0');
 const fmt = n => (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(+n || 0)).toLocaleString('es-CL');
@@ -161,10 +166,10 @@ function previoLocal() {
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (!k || k.indexOf('pa_day_') !== 0) continue;
-      const f = k.slice(7);
+      if (!k || k.indexOf(PREF + 'day_') !== 0) continue;
+      const f = k.slice((PREF + 'day_').length);
       if (f >= S.fecha) continue;
-      const d = LS.get(k, {}) || {};
+      const d = LS.get('pa_day_' + f, {}) || {};
       (d.inventario || []).forEach(m => movs.push(Object.assign({}, m, { fecha: f })));
       (d.registros || []).forEach(r => regs.push(Object.assign({}, r, { fecha: f })));
     }
@@ -666,6 +671,98 @@ function cargarEjemplo() {
   saveDay(); toast('Día de ejemplo cargado (planilla del 9 de marzo)', 'ok'); renderTab();
 }
 
+/* ---------- días inventados para el modo de prueba ---------- */
+function borrarPrueba() {
+  try {
+    const ks = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('pademo_') === 0) ks.push(k); }
+    ks.forEach(k => localStorage.removeItem(k));
+  } catch (e) { }
+}
+function sembrarPrueba() {
+  const c = S.config, socios = c.socios, pc = c.productos[0];
+  const NOMBRES = ['Usett', 'Yamilet', 'Felipe', 'Gerardo Rodríguez', 'Leonor Núñez', 'Catalina Olivares', 'Gabriel Espinoza',
+    'Estrella Osorio', 'Víctor Alvial', 'Saúl Díaz', 'Benjamín Fernández', 'Antonia', 'Martina Soto', 'Tomás', 'Florencia Rojas',
+    'Ignacio', 'Javiera Muñoz', 'Matías', 'Camila Pérez', 'Joaquín', 'Isidora', 'Agustín Vega', 'Trinidad', 'Vicente', 'Emilia Contreras'];
+  let semilla = 7;
+  const azar = () => { semilla = (semilla * 16807) % 2147483647; return (semilla - 1) / 2147483646; };
+  const elegir = a => a[Math.floor(azar() * a.length)];
+  const fechaMas = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  const hm = m => pad(Math.floor(((m % 1440) + 1440) % 1440 / 60)) + ':' + pad(((m % 60) + 60) % 60);
+  let n = 0;
+  const grupo = (fecha, minEntrada, o) => {
+    o = o || {};
+    const personas = o.personas != null ? o.personas : 2 + Math.floor(azar() * (azar() < .2 ? 7 : 4));
+    const minutos = personas ? (o.minutos || (azar() < .25 ? 60 : 30)) : 0;
+    const cant = o.calcetas != null ? o.calcetas : (azar() < .55 ? Math.min(personas || 1, 1 + Math.floor(azar() * 4)) : 0);
+    const r = azar();
+    const medio = o.medio || (r < .5 ? 'Efectivo' : r < .9 ? 'Transferencia' : 'Débito');
+    const entrada = hm(minEntrada);
+    const quien = o.quien || elegir(socios);
+    const rec = {
+      id: 'demo' + (++n), fecha, entrada, salida: minutos ? sumarMin(entrada, minutos) : '',
+      personas, nombre: o.nombre || NOMBRES[(n * 7) % NOMBRES.length], pulsera: minutos ? colorDe(minutos) : '', minutos,
+      productos: cant ? [{ id: pc.id, nombre: pc.nombre, cant, precio: pc.precio }] : [],
+      calcetas: cant, precioCalceta: cant ? pc.precio : 0,
+      medio, cuenta: medio === 'Transferencia' ? (o.cuenta || elegir(socios)) : '',
+      precioPersona: minutos ? Calc.precioPersona(c, minutos) : 0, obs: o.obs || '',
+      devolucion: o.devolucion || 0, devolucionDesde: o.devolucion ? 'Efectivo' : '',
+      estado: o.estado || 'ok', creadoPor: quien, creadoEn: fecha + ' ' + hm(minEntrada - 3) + ':00'
+    };
+    if (o.estado === 'anulado') { rec.editadoPor = elegir(socios); rec.editadoEn = fecha + ' ' + hm(minEntrada + 2) + ':00'; }
+    rec.total = Calc.totalGrupo(rec);
+    return rec;
+  };
+  const movimiento = (fecha, minuto, tipo, cantidad, nota, quien) => ({
+    id: 'demo-m' + (++n), fecha, producto: pc.id, tipo, cantidad, nota: nota || '', estado: 'ok',
+    creadoPor: quien || socios[0], creadoEn: fecha + ' ' + hm(minuto) + ':00'
+  });
+  const gasto = (fecha, minuto, concepto, monto, desde) => ({
+    id: 'demo-g' + (++n), fecha, concepto, monto, pagadoDesde: desde || 'Efectivo', estado: 'ok',
+    creadoPor: elegir(socios), creadoEn: fecha + ' ' + hm(minuto) + ':00'
+  });
+  const cerrar = (fecha, regs, gastos, quien, minuto) => {
+    const r = Calc.resumen(regs, gastos, c);
+    return { fecha, estado: 'cerrada', cerradoPor: quien, cerradoEn: fecha + ' ' + hm(minuto) + ':00', neto: r.netoTotal, totalBruto: r.bruto };
+  };
+  const guardarDia = (fecha, d) => LS.set('pa_day_' + fecha, Object.assign({ registros: [], gastos: [], inventario: [], cierre: null, stockPrevio: null }, d));
+
+  // Anteayer: día completo, ya cerrado
+  const f2 = fechaMas(-2);
+  const r2 = [];
+  for (let m = 11 * 60; m <= 19 * 60; m += 25 + Math.floor(azar() * 25)) r2.push(grupo(f2, Math.ceil(m / 5) * 5));
+  r2.push(grupo(f2, 15 * 60 + 12, { personas: 0, calcetas: 2, nombre: 'Señora del quiosco', medio: 'Efectivo' }));
+  const g2 = [gasto(f2, 14 * 60, 'Almuerzo (3)', 15000), gasto(f2, 10 * 60 + 40, 'Bencina generador', 12000, socios[1])];
+  guardarDia(f2, { registros: r2, gastos: g2, inventario: [movimiento(f2, 10 * 60 + 45, 'inicial', 40, 'Conteo al abrir')], cierre: cerrar(f2, r2, g2, socios[0], 19 * 60 + 45) });
+
+  // Ayer: con llegada de mercadería, una devolución, un anulado y una diferencia en el conteo
+  const f1 = fechaMas(-1);
+  const r1 = [];
+  for (let m = 11 * 60 + 15; m <= 19 * 60; m += 22 + Math.floor(azar() * 28)) r1.push(grupo(f1, Math.ceil(m / 5) * 5));
+  r1.push(grupo(f1, 16 * 60, { personas: 3, minutos: 30, calcetas: 1, medio: 'Transferencia', cuenta: socios[1], nombre: 'Saúl Díaz', devolucion: 10000, obs: 'Pagó 1 hora y al final se quedó ½ hora' }));
+  r1.push(grupo(f1, 17 * 60 + 20, { personas: 4, estado: 'anulado', nombre: 'Grupo duplicado', obs: 'Se registró dos veces' }));
+  const g1 = [gasto(f1, 13 * 60 + 30, 'Almuerzo (2)', 10000), gasto(f1, 12 * 60, 'Hielo', 3000)];
+  const i1 = [movimiento(f1, 12 * 60 + 30, 'ingreso', 20, 'Llegó pedido', socios[1]),
+    movimiento(f1, 19 * 60 + 30, 'ajuste', -1, 'Conteo: faltó 1 (se mojó y se botó)', socios[1])];
+  guardarDia(f1, { registros: r1, gastos: g1, inventario: i1, cierre: cerrar(f1, r1, g1, socios[1], 19 * 60 + 50) });
+
+  // Hoy: algunos terminados, dos en el agua (uno a punto de salir, para ver la alerta) y uno por entrar
+  const f0 = fechaMas(0);
+  const ahora = minutosDe(ahoraHM());
+  const r0 = [];
+  for (let m = Math.max(10 * 60 + 30, ahora - 200); m <= ahora - 45; m += 30 + Math.floor(azar() * 15)) r0.push(grupo(f0, Math.floor(m / 5) * 5));
+  r0.push(grupo(f0, Math.ceil((ahora - 28) / 5) * 5, { personas: 3, minutos: 30, calcetas: 2, nombre: 'Familia Rojas', medio: 'Efectivo' }));
+  r0.push(grupo(f0, Math.floor((ahora - 12) / 5) * 5, { personas: 6, minutos: 60, calcetas: 0, nombre: 'Cumpleaños Martina', medio: 'Transferencia', cuenta: socios[0] }));
+  r0.push(grupo(f0, minutosDe(entradaPropuesta()), { personas: 2, minutos: 30, calcetas: 2, nombre: 'Tomás', medio: 'Débito' }));
+  guardarDia(f0, { registros: r0, gastos: [gasto(f0, Math.max(ahora - 60, 10 * 60), 'Almuerzo (2)', 10000)], inventario: [] });
+
+  // Los grupos que ya terminaron antes de abrir la prueba no hacen sonar la alerta
+  const vistos = {};
+  r0.forEach(r => { if (r.minutos && minutosDe(r.entrada) + r.minutos <= ahora) vistos[r.id + '@' + r.salida] = 1; });
+  LS.set('pa_avisos_' + f0, vistos);
+  LS.set('pa_semilla', 1);
+}
+
 /* ---------- login ---------- */
 async function cargarUsuarios() {
   if (DEMO) return;
@@ -774,7 +871,8 @@ function vistaLogin() {
       <p>Caja del día</p>
     </div>
     <div class="login-form">
-      ${DEMO ? '<p class="info">Modo de prueba: lo que registres queda solo en este teléfono.</p>' : ''}
+      ${PRUEBA ? '<p class="info"><b>Versión de prueba.</b> Trae tres días inventados: anteayer y ayer ya cerrados, y hoy con grupos en el agua. Prueba todo lo que quieras: nada de esto llega a la caja real.</p>'
+        : DEMO ? '<p class="info">Modo de prueba: lo que registres queda solo en este teléfono.</p>' : ''}
       <label class="lbl" for="lu">¿Quién eres?</label>
       <select id="lu" class="inp">${ops ? '<option value="">Elige tu nombre</option>' + ops : '<option value="">Cargando usuarios…</option>'}</select>
       ${DEMO ? '' : '<label class="lbl" for="lp">PIN</label><input id="lp" class="inp" type="password" inputmode="numeric" autocomplete="off" maxlength="8">'}
@@ -1133,6 +1231,7 @@ function vistaCaja() {
     ${cerrado ? `<div class="c-estado"><span class="cerrado-ic">${ICON.lock}</span><div><b>Caja cerrada</b><small>La cerró ${esc(S.cierre.cerradoPor)} a las ${esc(horaDe(S.cierre.cerradoEn))}.</small></div></div>
       ${linkArchivo('btn')}
       ${!DEMO && !(S.cierre.archivo) ? '<p class="ayuda" data-key="arch-pend">El archivo del día aparece aquí cuando el cierre llega a la planilla.</p>' : ''}
+      ${DEMO ? '<p class="ayuda" data-key="arch-demo">En la versión real, aquí aparece el botón para abrir el archivo de este día guardado en Drive.</p>' : ''}
       ${S.cierre.archivo && !/^https?:/.test(S.cierre.archivo) ? `<p class="ayuda alerta" data-key="arch-err">${esc(S.cierre.archivo)}</p>` : ''}
       ${cambiosPostCierre ? '<p class="ayuda alerta" data-key="post">Los totales no coinciden con lo que se cerró. Revisa con un administrador.</p>' : ''}`
     : `${S.cierre && S.cierre.estado === 'reabierta' ? `<p class="ayuda alerta" data-key="reab">La caja fue reabierta por ${esc(S.cierre.reabiertoPor || '')} a las ${esc(horaDe(S.cierre.reabiertoEn))}. Vuelve a cerrarla cuando termines.</p>` : ''}
@@ -1140,7 +1239,11 @@ function vistaCaja() {
       <p class="ayuda">Al cerrar, el día queda bloqueado y se guarda una planilla con todo en la carpeta Cajas diarias del Drive.</p>`}
     <button class="btn" data-act="compartir">${ICON.compartir}<span>Compartir resumen</span></button>
     ${cerrado && esAdmin() ? '<button class="btn quitar" data-act="reabrir">Reabrir caja (administrador)</button>' : ''}
-  </section>`;
+  </section>
+  ${PRUEBA ? `<section class="prueba-pie" data-key="prueba">
+    <p><b>Estás en la versión de prueba.</b> Para ver los días anteriores, toca la fecha de arriba y elige ayer o anteayer.</p>
+    <button class="btn" data-act="reiniciar-prueba">Volver a los días de prueba originales</button>
+  </section>` : ''}`;
 }
 
 /* =========================================================
@@ -1194,7 +1297,11 @@ const ACT = {
   reabrir: reabrirCaja,
   'ir-hoy'() { S.fecha = hoy(); S.editId = null; loadDay(); S.form = nuevoForm(); render(); sync(); },
   compartir,
-  ejemplo: cargarEjemplo
+  ejemplo: cargarEjemplo,
+  'reiniciar-prueba'() {
+    if (!confirm('¿Volver a los días de prueba originales? Se borra lo que hayas registrado en esta prueba.')) return;
+    borrarPrueba(); location.reload();
+  }
 };
 
 document.addEventListener('click', e => {
@@ -1239,6 +1346,7 @@ setInterval(() => {
 setInterval(() => { if (S.user) sync(); }, 30000);
 
 /* ---------- inicio ---------- */
+if (PRUEBA && !LS.get('pa_semilla', null)) sembrarPrueba();
 loadDay();
 if (S.user) S.form = nuevoForm();
 render();

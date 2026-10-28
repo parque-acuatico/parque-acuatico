@@ -299,6 +299,9 @@ main { max-width: 640px; margin: 0 auto; padding: 8px 16px 16px; }
 .cierre .c-estado small { color: var(--muted); }
 .cierre .cerrado-ic { background: var(--soft); color: var(--deep); }
 
+.prueba-pie { border: 2px dashed var(--pool); border-radius: 18px; padding: 14px 16px; margin: 4px 0 16px; }
+.prueba-pie p { margin: 0; font-size: 14px; }
+
 /* ---------- login ---------- */
 .login { min-height: 100vh; display: flex; flex-direction: column; }
 .login-ola { background: linear-gradient(180deg, #16c3e3, #0b6f99); color: #fff; text-align: center; padding: calc(48px + env(safe-area-inset-top)) 20px 56px; clip-path: ellipse(120% 100% at 50% 0); }
