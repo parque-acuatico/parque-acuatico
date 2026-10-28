@@ -1,1 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0b6e99"/><path d="M8 38c6 0 6-5 12-5s6 5 12 5 6-5 12-5 6 5 12 5v14H8z" fill="#7fd8f5"/><path d="M8 30c6 0 6-5 12-5s6 5 12 5 6-5 12-5 6 5 12 5" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="44" cy="16" r="6" fill="#ffd54f"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs>
+    <linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34d3f2"/><stop offset="1" stop-color="#0e86bd"/>
+    </linearGradient>
+    <linearGradient id="agua" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a78ad"/><stop offset="1" stop-color="#054369"/>
+    </linearGradient>
+  <clipPath id="r"><rect width="512" height="512" rx="112"/></clipPath></defs><g clip-path="url(#r)"><rect width="512" height="512" fill="url(#cielo)"/>
+  
+  
+  <circle cx="368" cy="140" r="64" fill="#ffd54a" opacity=".25"/>
+  <circle cx="368" cy="140" r="44" fill="#ffd54a"/>
+  <!-- ola que se enrosca -->
+  <path d="M30 372 C 70 330, 90 240, 170 205 C 255 168, 335 210, 345 280 C 352 332, 310 362, 272 348 C 238 336, 236 290, 270 282 C 246 318, 296 334, 306 292 C 316 252, 270 226, 220 240 C 150 260, 130 340, 80 380 Z" fill="#fff"/>
+  <!-- flotador -->
+  <circle cx="392" cy="352" r="50" fill="none" stroke="#fff" stroke-width="30"/>
+  <circle cx="392" cy="352" r="50" fill="none" stroke="#ff5a3c" stroke-width="30" stroke-dasharray="39.27 39.27" transform="rotate(22 392 352)"/>
+  <!-- agua al frente -->
+  <path d="M0 380 C 60 380, 100 352, 160 352 C 230 352, 270 392, 340 392 C 400 392, 450 368, 512 358 V512 H0 Z" fill="url(#agua)"/>
+  <path d="M0 380 C 60 380, 100 352, 160 352 C 230 352, 270 392, 340 392 C 400 392, 450 368, 512 358" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round"/>
+  <path d="M110 440 C 160 426, 210 426, 260 440" stroke="#fff" stroke-opacity=".3" stroke-width="10" stroke-linecap="round" fill="none"/>
+</g></svg>

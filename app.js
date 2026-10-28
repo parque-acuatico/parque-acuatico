@@ -595,7 +595,7 @@ function vistaLogin() {
 }
 
 function iconoOla(s) {
-  return `<svg width="${s}" height="${s}" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0b6e99"/><path d="M8 38c6 0 6-5 12-5s6 5 12 5 6-5 12-5 6 5 12 5v14H8z" fill="#7fd8f5"/><path d="M8 30c6 0 6-5 12-5s6 5 12 5 6-5 12-5 6 5 12 5" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="44" cy="16" r="6" fill="#ffd54f"/></svg>`;
+  return `<img src="icon.svg" width="${s}" height="${s}" alt="" class="logo-img">`;
 }
 
 function renderHeader() {
