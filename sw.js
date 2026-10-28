@@ -1,6 +1,6 @@
 // Guarda la app en el teléfono para que abra sin señal.
 // Si cambias algún archivo, sube este número para que los teléfonos tomen la versión nueva.
-const VERSION = 'pa-v1';
+const VERSION = 'pa-v2';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'calc.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -18,4 +18,12 @@ self.addEventListener('fetch', e => {
       const copia = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copia)); return r;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html')))
   );
+});
+// Al tocar la notificación de "terminó el tiempo", abrir la app
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+    const c = cs.find(x => 'focus' in x);
+    return c ? c.focus() : self.clients.openWindow('./');
+  }));
 });

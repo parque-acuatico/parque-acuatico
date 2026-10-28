@@ -5,7 +5,9 @@ App para el celular que reemplaza la planilla de caja en papel. Registra cada gr
 ## Qué hace
 
 - **Registrar**: personas, nombre, tiempo (½ h / 1 h), pulsera, calcetas y medio de pago. Si es transferencia, a qué cuenta llegó. La hora de entrada se toma sola y la salida se calcula.
-- **Grupos del día**: lista con la cuenta regresiva de cada grupo (avisa cuando quedan 5 min), quién lo registró y quién lo editó. Tocando un grupo se puede corregir, registrar una devolución o anularlo.
+- **Horario de 5 en 5**: la entrada se redondea a los 5 minutos siguientes (si son las 10:51, el turno parte a las 10:55).
+- **Alerta de término**: cuando se acaba el tiempo de un grupo, suena, vibra y aparece una ventana con el color de pulsera. Se repite cada 9 s hasta tocar "Listo" (máximo 3 min). Mientras hay grupos en el agua, la pantalla se mantiene encendida para que la alerta suene a tiempo.
+- **Grupos del día**: lista con la cuenta regresiva y barra de avance de cada grupo (se marca en naranjo cuando quedan 5 min), quién lo registró y quién lo editó. Tocando un grupo se puede corregir, registrar una devolución o anularlo.
 - **Caja**: efectivo, transferencias por socio, débito, devoluciones, gastos, neto y cuánto efectivo se lleva cada socio. Cierre de caja y resumen para WhatsApp.
 - **Quién hizo qué**: cada persona entra con su nombre y PIN. Todo queda firmado, y la pestaña `Historial` de la planilla guarda cada creación, edición y anulación con el detalle de lo que cambió.
 - **Sin señal**: los registros se guardan en el teléfono y se envían solos cuando vuelve la conexión.
