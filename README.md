@@ -11,7 +11,8 @@ App para el celular que reemplaza la planilla de caja en papel. Registra cada gr
 - **Horario de 5 en 5**: la entrada se redondea a los 5 minutos siguientes (si son las 10:51, el turno parte a las 10:55).
 - **Alerta de término**: cuando se acaba el tiempo de un grupo, suena, vibra y aparece una ventana con el color de pulsera. Se repite cada 9 s hasta tocar "Listo" (máximo 3 min). Mientras hay grupos en el agua, la pantalla se mantiene encendida para que la alerta suene a tiempo.
 - **Grupos del día**: lista con la cuenta regresiva y barra de avance de cada grupo (se marca en naranjo cuando quedan 5 min), quién lo registró y quién lo editó. Tocando un grupo se puede corregir, registrar una devolución o anularlo.
-- **Caja**: efectivo, transferencias por socio, débito, devoluciones, gastos, neto y cuánto efectivo se lleva cada socio. Cierre de caja y resumen para WhatsApp.
+- **Caja**: efectivo, transferencias por socio, débito, devoluciones, gastos, neto y cuánto efectivo se lleva cada socio. Resumen para WhatsApp.
+- **Cerrar caja**: al cerrar, el día queda bloqueado (no se pueden agregar ni cambiar grupos, gastos ni inventario) y se guarda una planilla con todo el día en la carpeta **Cajas diarias – Parque Acuático** del Drive, ordenada por mes. Un usuario con rol `admin` puede reabrirla; al volver a cerrar, el archivo se actualiza.
 - **Quién hizo qué**: cada persona entra con su nombre y PIN. Todo queda firmado, y la pestaña `Historial` de la planilla guarda cada creación, edición y anulación con el detalle de lo que cambió.
 - **Sin señal**: los registros se guardan en el teléfono y se envían solos cuando vuelve la conexión.
 
@@ -35,7 +36,7 @@ Dónde vive cada cosa:
 4. En **Configuración del proyecto** (engranaje, a la izquierda) revisa que la zona horaria sea `(GMT-03:00) Santiago`.
 5. Vuelve al editor, elige la función **`setup`** en la lista de arriba y pulsa **Ejecutar**.
 6. Google pedirá permisos: **Revisar permisos** → elige el correo del negocio → "Google no verificó esta app" → **Configuración avanzada** → **Ir a … (no seguro)** → **Permitir**. Es normal: la app la hiciste tú y Google no la ha revisado.
-7. En la planilla aparecen las pestañas `Registros`, `Gastos`, `Cierres`, `Historial`, `Usuarios` y `Config`.
+7. En la planilla aparecen las pestañas `Registros`, `Gastos`, `Inventario`, `Cierres`, `Historial`, `Productos`, `Usuarios` y `Config`, y junto a la planilla se crea la carpeta **Cajas diarias – Parque Acuático**.
 8. En **Usuarios**, cambia los PIN de ejemplo (1111 y 2222) y agrega a quien vaya a usar la app.
 9. En **Config**, revisa precios y nombres de socios. El nombre de cada socio tiene que coincidir con su nombre en `Usuarios`.
 
@@ -75,7 +76,7 @@ Dónde vive cada cosa:
 
 | Pestaña | Para qué |
 |---|---|
-| `Usuarios` | Nombre, PIN, rol y activo (si/no). **Cambia los PIN de ejemplo (1111 y 2222).** Para sacar a alguien, pon `no` en activo. |
+| `Usuarios` | Nombre, PIN, rol y activo (si/no). **Cambia los PIN de ejemplo (1111 y 2222).** Para sacar a alguien, pon `no` en activo. Solo quienes tienen rol `admin` pueden reabrir una caja cerrada; para el resto escribe `cajero`. |
 | `Config` | Precios de entrada (`precio_media`, `precio_hora`), colores de pulsera (`color_media`, `color_hora`), socios y cuenta del débito. Los cambios llegan a los teléfonos en la siguiente sincronización. (Si quedó una fila `precio_calceta` o `colores` de la versión anterior, ya no se usa.) |
 | `Productos` | Lo que se vende: `id` (una palabra, sin espacios, no cambiarlo después), `nombre`, `precio`, `activo` (si/no), `aviso_bajo` (avisa cuando quedan esa cantidad o menos) y `orden`. Para vender algo nuevo, agrega una fila. |
 | `Registros` | Un grupo o venta por fila. Cada fila guarda el precio que se cobró, así cambiar precios no altera días pasados. La columna `productos` dice qué compró. |
@@ -86,9 +87,10 @@ Dónde vive cada cosa:
 
 ### Dónde quedan guardadas las cajas
 
-Todo vive en esta planilla, en el Drive del correo del negocio. No hay otra base de datos.
+Todo vive en el Drive del correo del negocio.
 - Cada grupo se guarda en `Registros` apenas se registra (o cuando vuelve la señal).
-- Al tocar **Cerrar caja del día**, se escribe la fila del día en `Cierres`. Si se vuelve a cerrar, esa fila se actualiza.
+- Al tocar **Cerrar caja del día**, se escribe la fila del día en `Cierres` y se crea un archivo propio del día: `Cajas diarias – Parque Acuático / 2026-10 Octubre / Caja 2026-10-28 (miércoles)`. Tiene el resumen, el reparto, todos los grupos, los gastos y el inventario. El enlace queda en la columna `archivo` de `Cierres` y en la app (pestaña Caja).
+- Para ver un día anterior: abre su archivo en esa carpeta, o en la app toca la fecha y elige ese día.
 - Google guarda versiones de la planilla: **Archivo → Historial de versiones** permite ver o recuperar cómo estaba en cualquier momento.
 - Para un respaldo aparte: **Archivo → Descargar → Excel**, o **Archivo → Hacer una copia**.
 
@@ -102,9 +104,9 @@ Para definir la cuenta del débito, escribe el nombre del socio en `cuenta_debit
 4. A cada socio se le descuenta lo que ya le llegó a su cuenta por transferencia. Lo que falta se lo lleva en efectivo.
 5. Si un socio recibió más que su parte por transferencia, la app indica cuánto debe pasarle al otro.
 
-Gastos y devoluciones pueden salir de la caja o de la plata de un socio. Si los pagó un socio, se le compensa en el reparto.
+Gastos y devoluciones pueden salir de la caja o del dinero de un socio. Si los pagó un socio, se le compensa en el reparto.
 
 ## Actualizar
 
 - **Cambios en la app**: sube los archivos a GitHub y aumenta el número `VERSION` en `sw.js` para que los teléfonos tomen la versión nueva.
-- **Cambios en `Codigo.gs`**: pega el código nuevo encima del anterior y guarda. Luego Implementar → Administrar implementaciones → editar (lápiz) → Versión: **Nueva versión** → Implementar. Así se mantiene la misma URL. Las pestañas y columnas nuevas se crean solas la primera vez que la app se conecta; los datos existentes no se tocan.
+- **Cambios en `Codigo.gs`**: pega el código nuevo encima del anterior y guarda. Si la versión nueva necesita permisos nuevos (por ejemplo, Drive para los archivos diarios), ejecuta una vez la función `setup` desde el editor y acepta los permisos; no borra datos. Luego Implementar → Administrar implementaciones → editar (lápiz) → Versión: **Nueva versión** → Implementar. Así se mantiene la misma URL. Las pestañas y columnas nuevas se crean solas la primera vez que la app se conecta; los datos existentes no se tocan.

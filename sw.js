@@ -1,8 +1,9 @@
 // Guarda la app en el teléfono para que abra sin señal.
 // Si cambias algún archivo, sube este número para que los teléfonos tomen la versión nueva.
-const VERSION = 'pa-v4';
+const VERSION = 'pa-v5';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'calc.js', 'config.js', 'manifest.json', 'icon.svg',
-  'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
+  'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png', 'apple-touch-icon.png',
+  'fonts/baloo-2-latin-600-normal.woff2', 'fonts/baloo-2-latin-700-normal.woff2', 'fonts/baloo-2-latin-800-normal.woff2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));

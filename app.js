@@ -204,9 +204,9 @@ function guardarLocal(kind, obj) {
 }
 
 /* ---------- servidor (Google Apps Script) ---------- */
-async function api(action, payload) {
+async function api(action, payload, espera) {
   const body = Object.assign({ action, usuario: S.user && S.user.nombre, pin: S.user && S.user.pin }, payload || {});
-  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 25000);
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), espera || 25000);
   try {
     const res = await fetch(API_URL, {
       method: 'POST', body: JSON.stringify(body),
@@ -235,9 +235,13 @@ async function sync() {
   try {
     const q = getQueue();
     if (q.length) {
-      const res = await api('sync', { ops: q });
+      const res = await api('sync', { ops: q }, 90000);
       const hechos = new Set(res.applied || []);
       setQueue(getQueue().filter(o => !hechos.has(o.opId)));
+      if (res.rechazados && res.rechazados.length) {
+        toast(res.rechazados.length === 1 ? 'Un cambio no se guardó: la caja de ese día ya estaba cerrada'
+          : res.rechazados.length + ' cambios no se guardaron: la caja de ese día ya estaba cerrada', 'err');
+      }
     }
     const d = await api('getDay', { fecha });
     aplicarConfig(d.config);
@@ -374,7 +378,7 @@ function renderAlerta() {
       <div class="al-icono"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg></div>
       <h2 id="al-t">${S.alertas.length > 1 ? 'Se acabó el tiempo de ' + S.alertas.length + ' grupos' : 'Se acabó el tiempo'}</h2>
       ${S.alertas.map(r => `<div class="al-grupo" data-key="al-${r.id}"><i style="background:${colorHex(r.pulsera)}"></i><div><b>Pulsera ${esc(r.pulsera)} · ${tiempoTxt(r.minutos)}</b><span>${esc(r.nombre)} · ${r.personas} pers · salida ${esc(r.salida)}</span></div></div>`).join('')}
-      <button class="btn primary big" data-act="alerta-ok">Listo, ya salieron</button>
+      <button class="btn coral big" data-act="alerta-ok">Listo, ya salieron</button>
     </div>`;
   if (el.hidden || !el.firstElementChild) { el.innerHTML = html; el.hidden = false; void el.offsetWidth; el.classList.add('show'); }
   else morph(el, html);
@@ -427,7 +431,16 @@ function totalForm() {
   return Calc.totalGrupo({ personas: f.personas, precioPersona: f.precioPersona, productos: productosDelForm() });
 }
 
+function diaCerrado() { return !!S.cierre && S.cierre.estado !== 'reabierta'; }
+function esAdmin() { return DEMO || (S.user && String(S.user.rol || '').toLowerCase() === 'admin'); }
+function bloqueado() {
+  if (!diaCerrado()) return false;
+  toast('La caja de este día está cerrada. No se pueden hacer cambios.', 'err');
+  return true;
+}
+
 function guardarGrupo() {
+  if (bloqueado()) return;
   const f = S.form;
   const nombre = (f.nombre || '').trim();
   const productos = productosDelForm();
@@ -478,6 +491,7 @@ function avisarStockBajo(productos) {
 }
 
 function cambiarEstado(id, estado) {
+  if (bloqueado()) return;
   const r = S.registros.find(x => x.id === id); if (!r) return;
   const quien = esVenta(r) ? 'la venta de ' : 'el grupo de ';
   const msg = estado === 'anulado' ? '¿Anular ' + quien + r.nombre + '? Quedará registrado quién lo anuló.' : '¿Restaurar ' + quien + r.nombre + '?';
@@ -494,6 +508,7 @@ const TIPOS_MOV = [
   ['conteo', 'Contar ahora', '¿Cuántas hay ahora?']
 ];
 function guardarMovimiento() {
+  if (bloqueado()) return;
   const f = S.iform;
   const p = productoPorId(f.producto) || S.config.productos[0];
   if (!p) return toast('No hay productos configurados', 'err');
@@ -526,6 +541,7 @@ function guardarMovimiento() {
   renderTab();
 }
 function anularMovimiento(id) {
+  if (bloqueado()) return;
   const m = S.inventario.find(x => x.id === id); if (!m) return;
   if (!confirm('¿Anular este movimiento de inventario?')) return;
   guardarLocal('inventario', Object.assign({}, m, { estado: 'anulado', editadoPor: S.user.nombre, editadoEn: nowLocal() }));
@@ -534,6 +550,7 @@ function anularMovimiento(id) {
 
 /* ---------- gastos y cierre ---------- */
 function agregarGasto() {
+  if (bloqueado()) return;
   const g = S.gform;
   const monto = parseInt(String(g.monto).replace(/\D/g, ''), 10) || 0;
   if (!g.concepto.trim()) return toast('Escribe el concepto del gasto', 'err');
@@ -547,6 +564,7 @@ function agregarGasto() {
   toast('Gasto agregado'); renderTab();
 }
 function anularGasto(id) {
+  if (bloqueado()) return;
   const g = S.gastos.find(x => x.id === id); if (!g) return;
   if (!confirm('¿Anular el gasto "' + g.concepto + '" de ' + fmt(g.monto) + '?')) return;
   guardarLocal('gasto', Object.assign({}, g, { estado: 'anulado', editadoPor: S.user.nombre, editadoEn: nowLocal() }));
@@ -554,15 +572,19 @@ function anularGasto(id) {
 }
 function cerrarCaja() {
   const r = Calc.resumen(S.registros, S.gastos, S.config);
+  if (diaCerrado()) return toast('La caja ya está cerrada', 'err');
   if (!r.grupos && !r.ventasSueltas) return toast('No hay ventas registradas este día', 'err');
-  if (!confirm('¿Cerrar la caja del ' + fechaLarga(S.fecha) + '?\nTotal: ' + fmt(r.recaudado) + ' · Neto: ' + fmt(r.netoTotal))) return;
+  const activos = gruposActivos().length;
+  if (!confirm('¿Cerrar la caja del ' + fechaLarga(S.fecha) + '?\n\nTotal: ' + fmt(r.recaudado) + '\nNeto: ' + fmt(r.netoTotal) +
+    (activos ? '\n\nOjo: todavía hay ' + activos + ' grupo(s) en el agua.' : '') +
+    '\n\nDespués de cerrar no se pueden agregar ni cambiar registros de este día.')) return;
   const st = stockHoy();
-  guardarLocal('cierre', {
-    fecha: S.fecha, cerradoPor: S.user.nombre, cerradoEn: nowLocal(),
+  guardarLocal('cierre', Object.assign({}, S.cierre || {}, {
+    fecha: S.fecha, estado: 'cerrada', cerradoPor: S.user.nombre, cerradoEn: nowLocal(),
     totalBruto: r.bruto, devoluciones: r.devol, gastos: r.totalGastos, neto: r.netoTotal,
     efectivoCaja: r.caja, debitoPendiente: r.debitoPendiente,
     reparto: r.socios.map(s => s + ': ' + fmt(r.tiene[s]) + ' en cuenta + ' + (r.entregar[s] >= 0 ? fmt(r.entregar[s]) + ' efectivo' : 'debe pasar ' + fmt(-r.entregar[s]))).join(' · '),
-    detalle: JSON.stringify({ efectivo: r.efectivo, transf: r.transf, debito: r.debito, grupos: r.grupos, personas: r.personas, productos: r.porProducto, entregar: r.entregar }),
+    detalle: JSON.stringify({ efectivo: r.efectivo, transf: r.transf, debito: r.debito, grupos: r.grupos, personas: r.personas, productos: r.porProducto, parte: r.parte, tiene: r.tiene, entregar: r.entregar }),
     efectivo: r.efectivo,
     transferencias: r.socios.map(s => s + ' ' + fmt(r.transf[s] || 0)).join(' · '),
     debito: r.debito,
@@ -571,8 +593,16 @@ function cerrarCaja() {
     personas: r.personas,
     productosVendidos: Object.keys(r.porProducto).map(k => r.porProducto[k].nombre + ' ×' + r.porProducto[k].cant).join(', '),
     stockFinal: S.config.productos.map(p => p.nombre + ': ' + (st[p.id].queda == null ? 'sin conteo' : st[p.id].queda)).join(' · ')
-  });
-  toast('Caja cerrada', 'ok'); renderTab();
+  }));
+  toast(DEMO ? 'Caja cerrada' : 'Caja cerrada. El archivo del día se está guardando en Drive.', 'ok');
+  S.editId = null; S.form = nuevoForm();
+  renderTab();
+}
+function reabrirCaja() {
+  if (!esAdmin()) return toast('Solo un administrador puede reabrir la caja', 'err');
+  if (!confirm('¿Reabrir la caja del ' + fechaLarga(S.fecha) + '?\nQuedará registrado que la reabriste. Después hay que volver a cerrarla.')) return;
+  guardarLocal('cierre', Object.assign({}, S.cierre, { estado: 'reabierta', reabiertoPor: S.user.nombre, reabiertoEn: nowLocal() }));
+  toast('Caja reabierta', 'ok'); renderTab();
 }
 function textoResumen() {
   const r = Calc.resumen(S.registros, S.gastos, S.config);
@@ -673,6 +703,16 @@ function logout() {
 /* =========================================================
    Vistas
    ========================================================= */
+const ICON = {
+  lock: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  efectivo: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg>',
+  transferencia: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg>',
+  debito: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/></svg>',
+  archivo: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+  compartir: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>'
+};
+const COLOR_PAGO = ['#0aa2c0', '#6d5dfc', '#16a34a', '#f472b6'];
+
 function aparecer(el) {
   if (REDUCE) return;
   el.classList.remove('fade'); void el.offsetWidth; el.classList.add('fade');
@@ -686,11 +726,12 @@ function render() {
   }
   renderHeader(); actualizarNav(); renderTab();
 }
-function vistaId() { return S.tab + '|' + S.fecha + '|' + (S.tab === 'registrar' ? (S.editId || 'nuevo') : ''); }
+function vistaId() { return S.tab + '|' + S.fecha + '|' + (S.tab === 'registrar' ? (S.editId || 'nuevo') : '') + '|' + (diaCerrado() ? 'c' : 'a'); }
 function renderTab() {
   const main = $('#main'); if (!main || !S.user) return;
   if (!S.form) S.form = nuevoForm();
-  const html = S.tab === 'registrar' ? vistaRegistrar() : S.tab === 'dia' ? vistaDia() : S.tab === 'inventario' ? vistaInventario() : vistaCaja();
+  const vista = S.tab === 'registrar' ? vistaRegistrar() : S.tab === 'dia' ? vistaDia() : S.tab === 'inventario' ? vistaInventario() : vistaCaja();
+  const html = bannerCerrado() + vista;
   const id = vistaId();
   if (main.dataset.vista !== id) { main.innerHTML = html; main.dataset.vista = id; }
   else morph(main, html);
@@ -706,53 +747,76 @@ function irA(tab, preparar) {
   if (m && !REDUCE) { m.classList.remove('in-der', 'in-izq'); void m.offsetWidth; m.classList.add('in-' + dir); }
 }
 
+function iconoOla(s) { return `<img src="icon.svg" width="${s}" height="${s}" alt="" class="logo-img">`; }
+const inicial = n => esc(String(n || '?').trim().charAt(0).toUpperCase());
+
+function linkArchivo(cls) {
+  const a = S.cierre && S.cierre.archivo;
+  if (a && /^https?:/.test(a)) return `<a class="${cls || 'btn'}" href="${esc(a)}" target="_blank" rel="noopener">${ICON.archivo}<span>Abrir archivo del día</span></a>`;
+  return '';
+}
+function bannerCerrado() {
+  if (!diaCerrado()) return '';
+  return `<div class="cerrado" data-key="cerrado">
+    <span class="cerrado-ic">${ICON.lock}</span>
+    <div><b>Caja cerrada</b><small>La cerró ${esc(S.cierre.cerradoPor || '')} a las ${esc(horaDe(S.cierre.cerradoEn))}. Este día ya no acepta cambios.</small></div>
+    ${linkArchivo('cerrado-link')}
+  </div>`;
+}
+
 function vistaLogin() {
   const lista = DEMO ? S.config.socios : S.usuarios;
   const ops = lista.map(n => '<option>' + esc(n) + '</option>').join('');
   return `<div class="login">
-    <div class="logo">${iconoOla(64)}</div>
-    <h1>Parque Acuático</h1>
-    <p class="muted">Control de caja diario</p>
-    ${DEMO ? '<div class="info">Modo demostración: los datos quedan solo en este teléfono. Para conectar la planilla, sigue el README.</div>' : ''}
-    <label class="lbl">¿Quién eres?</label>
-    <select id="lu" class="inp">${ops ? '<option value="">Elegir…</option>' + ops : '<option value="">Cargando usuarios…</option>'}</select>
-    ${DEMO ? '' : '<label class="lbl">PIN</label><input id="lp" class="inp" type="password" inputmode="numeric" autocomplete="off" maxlength="8">'}
-    <button class="btn primary big" data-act="login">Entrar</button>
-    <p id="lerr" class="err"></p>
+    <div class="login-ola">
+      <div class="logo">${iconoOla(76)}</div>
+      <h1>Parque Acuático</h1>
+      <p>Caja del día</p>
+    </div>
+    <div class="login-form">
+      ${DEMO ? '<p class="info">Modo de prueba: lo que registres queda solo en este teléfono.</p>' : ''}
+      <label class="lbl" for="lu">¿Quién eres?</label>
+      <select id="lu" class="inp">${ops ? '<option value="">Elige tu nombre</option>' + ops : '<option value="">Cargando usuarios…</option>'}</select>
+      ${DEMO ? '' : '<label class="lbl" for="lp">PIN</label><input id="lp" class="inp" type="password" inputmode="numeric" autocomplete="off" maxlength="8">'}
+      <button class="btn coral big" data-act="login">Entrar</button>
+      <p id="lerr" class="err"></p>
+    </div>
   </div>`;
-}
-
-function iconoOla(s) {
-  return `<img src="icon.svg" width="${s}" height="${s}" alt="" class="logo-img">`;
 }
 
 function renderHeader() {
   const h = $('#hdr'); if (!h || !S.user) return;
   const n = getQueue().length;
   const st = {
-    demo: ['demo', 'Modo demo'], idle: ['pend', '…'], sync: ['sync', 'Sincronizando…'],
-    ok: ['ok', 'Al día con la planilla'], pending: ['pend', n + ' por enviar'],
-    offline: ['off', 'Sin señal' + (n ? ' · ' + n + ' por enviar' : '')],
-    error: ['err', 'Error: ' + (S.syncError || 'reintentar')]
+    demo: ['demo', 'Modo de prueba'], idle: ['pend', 'Conectando'], sync: ['sync', 'Guardando…'],
+    ok: ['ok', 'Guardado en la planilla'], pending: ['pend', n + ' por guardar'],
+    offline: ['off', 'Sin señal' + (n ? ', ' + n + ' por guardar' : '')],
+    error: ['err', 'No se pudo guardar']
   }[S.syncState] || ['pend', ''];
-  morph(h, `<div class="hdr-row">
-      <div class="brand">${iconoOla(28)}<span>Parque Acuático</span></div>
-      <button class="user" data-act="logout" title="Cerrar sesión">${esc(S.user.nombre)} <span class="muted">· salir</span></button>
+  const esHoy = S.fecha === hoy();
+  morph(h, `<div class="hdr-in">
+      <div class="hdr-top">
+        <div class="brand">${iconoOla(30)}<span>Parque Acuático</span></div>
+        <button class="user" data-act="logout" title="Cerrar sesión"><span class="avatar">${inicial(S.user.nombre)}</span><span>${esc(S.user.nombre)}</span></button>
+      </div>
+      <label class="fecha">
+        <input type="date" id="fecha" value="${S.fecha}" aria-label="Cambiar día">
+        <span class="f-dia">${esc(fechaLarga(S.fecha))}</span>
+        <span class="f-cambiar">${esHoy ? 'Hoy' : 'Otro día'} · cambiar</span>
+      </label>
+      <button class="sync s-${st[0]}" data-act="sync" title="${esc(S.syncError || '')}">${esc(st[1])}</button>
     </div>
-    <div class="hdr-row">
-      <label class="fecha"><input type="date" id="fecha" value="${S.fecha}"><span>${esc(fechaLarga(S.fecha))}${S.fecha === hoy() ? ' · hoy' : ''}</span></label>
-      <button class="sync s-${st[0]}" data-act="sync">${esc(st[1])}</button>
-    </div>`);
+    <svg class="ola" viewBox="0 0 400 28" preserveAspectRatio="none" aria-hidden="true"><path d="M0 0H400V12C350 28 300 28 250 16S150 0 100 10 30 24 0 16Z"/></svg>`);
 }
 
 function construirNav() {
   const t = [
     ['registrar', 'Registrar', '<path d="M12 5v14M5 12h14"/>'],
-    ['dia', 'Grupos', '<path d="M4 6h16M4 12h16M4 18h10"/>'],
+    ['dia', 'Grupos', '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.8.3 5 2.7 5 5.8"/>'],
     ['inventario', 'Inventario', '<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>'],
-    ['caja', 'Caja', '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/>']
+    ['caja', 'Caja', '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/>']
   ];
-  $('#nav').innerHTML = '<span class="ind"></span>' + t.map(x => `<button data-act="tab" data-v="${x[0]}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${x[2]}</svg><span>${x[1]}</span></button>`).join('');
+  $('#nav').innerHTML = '<span class="ind"></span>' + t.map(x => `<button data-act="tab" data-v="${x[0]}"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${x[2]}</svg><span>${x[1]}</span></button>`).join('');
 }
 function actualizarNav() {
   const nav = $('#nav'); if (!nav) return;
@@ -766,11 +830,24 @@ function chips(field, opciones, valor, extra) {
     return `<button type="button" class="chip ${String(valor) === String(v) ? 'on' : ''}" data-act="${extra || 'set'}" data-f="${field}" data-v="${esc(v)}">${esc(l)}</button>`;
   }).join('')}</div>`;
 }
-function stepper(act, field, valor, min) {
-  return `<div class="stepper"><button type="button" data-act="${act}" data-f="${field}" data-v="-1" ${valor <= min ? 'disabled' : ''} aria-label="menos">−</button><b data-count="${valor}" data-t="n">${valor}</b><button type="button" data-act="${act}" data-f="${field}" data-v="1" aria-label="más">+</button></div>`;
+function stepper(act, field, valor, min, grande) {
+  return `<div class="stepper ${grande ? 'grande' : ''}"><button type="button" data-act="${act}" data-f="${field}" data-v="-1" ${valor <= min ? 'disabled' : ''} aria-label="Quitar uno">−</button><b data-count="${valor}" data-t="n">${valor}</b><button type="button" data-act="${act}" data-f="${field}" data-v="1" aria-label="Agregar uno">+</button></div>`;
 }
+function paso(n, titulo, cuerpo, key) {
+  return `<section class="paso" data-key="${key}"><h2 class="paso-h"><span class="n">${n}</span>${titulo}</h2>${cuerpo}</section>`;
+}
+function pulseraVis(color) { return `<span class="pulsera-vis" style="--c:${colorHex(color)}" aria-hidden="true"></span>`; }
 
+/* ---------- Registrar ---------- */
 function vistaRegistrar() {
+  if (diaCerrado()) {
+    return `<section class="vacio-card" data-key="reg-cerrado">
+      <div class="vacio-ic">${ICON.lock}</div>
+      <h2>No se pueden registrar más grupos este día</h2>
+      <p>La caja ya se cerró. ${S.fecha !== hoy() ? 'Para registrar, vuelve al día de hoy.' : 'Si hay que corregir algo, un administrador puede reabrirla desde la pestaña Caja.'}</p>
+      ${S.fecha !== hoy() ? '<button class="btn coral" data-act="ir-hoy">Ir a hoy</button>' : '<button class="btn" data-act="tab" data-v="caja">Ver la caja</button>'}
+    </section>`;
+  }
   const f = S.form, c = S.config;
   const prev = S.editId ? S.registros.find(r => r.id === S.editId) : null;
   const total = totalForm();
@@ -783,144 +860,183 @@ function vistaRegistrar() {
   const st = stockHoy();
   const prods = productosDelForm();
   const detalle = [];
-  if (!venta) detalle.push(f.personas + ' × ' + fmt(f.precioPersona) + ' (' + tiempoTxt(f.minutos) + ')');
-  prods.forEach(p => detalle.push(p.cant + ' ' + p.nombre.toLowerCase() + ' × ' + fmt(p.precio)));
+  if (!venta) detalle.push(f.personas + ' × ' + fmt(f.precioPersona));
+  prods.forEach(p => detalle.push(p.cant + ' ' + p.nombre.toLowerCase()));
+  let n = 0;
 
-  const tiempoChip = (min, precio) => {
+  const tiempoTile = (min, precio) => {
     const col = colorDe(min);
-    return `<button type="button" class="chip tchip ${+f.minutos === min ? 'on' : ''}" data-act="set" data-f="minutos" data-v="${min}">
-      <span class="t-top">${tiempoTxt(min)} · ${fmt(precio)}</span>
-      <span class="t-pul"><i style="background:${colorHex(col)}"></i>Pulsera ${esc(col)}</span></button>`;
+    return `<button type="button" class="tile tiempo ${+f.minutos === min ? 'on' : ''}" data-act="set" data-f="minutos" data-v="${min}">
+      ${pulseraVis(col)}
+      <b>${tiempoTxt(min)}</b>
+      <span>${fmt(precio)} por persona</span>
+      <small>Pulsera ${esc(col.toLowerCase())}</small>
+    </button>`;
   };
+  const pagoTile = (v, label, ic) => `<button type="button" class="tile pago ${f.medio === v ? 'on' : ''}" data-act="set" data-f="medio" data-v="${v}">${ic}<b>${label}</b></button>`;
 
-  return `<section class="card form">
-    ${prev ? `<div class="editando"><div><b>Editando ${esVenta(prev) ? 'venta' : 'grupo'} de ${esc(prev.nombre)}</b><small>Registrado por ${esc(prev.creadoPor || '?')} a las ${esc(horaDe(prev.creadoEn))}</small></div><button class="btn ghost sm" data-act="cancelar">Cancelar</button></div>` : ''}
-    ${otroDia ? `<div class="info">Estás registrando en el ${esc(fechaLarga(S.fecha))}, no hoy.</div>` : ''}
-
-    <div class="row-pers">
-      <div><label class="lbl">Personas</label>${stepper('step', 'personas', f.personas, 0)}</div>
-      <div class="pers-txt">${venta ? '<b>Solo compra</b><small>No entra al agua</small>' : ''}</div>
+  const pasos = [];
+  pasos.push(paso(++n, '¿Cuántas personas?', `
+    <div class="personas">${stepper('step', 'personas', f.personas, 0, true)}</div>
+    ${venta ? '<p class="ayuda" data-key="ayuda-venta">Con 0 personas se registra solo la compra de productos, sin entrar al agua.</p>' : ''}`, 'p-pers'));
+  pasos.push(paso(++n, venta ? '¿A nombre de quién?' : 'Nombre del grupo', `
+    <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: Yamilet" autocomplete="off" autocapitalize="words" enterkeyhint="done">`, 'p-nom'));
+  if (!venta) pasos.push(paso(++n, 'Tiempo', `
+    <div class="tiles dos">${tiempoTile(30, c.precio_media)}${tiempoTile(60, c.precio_hora)}</div>
+    <div class="horario">
+      <span>Entran</span>
+      <input id="f-entrada" class="hora" type="time" step="300" data-field="entrada" value="${esc(entrada)}" aria-label="Hora de entrada">
+      <span>y salen a las</span><b>${salida}</b>
     </div>
+    ${auto ? `<p class="ayuda" data-key="ayuda-hora">Son las ${ahoraHM()}. El turno parte a los 5 minutos siguientes.</p>` : ''}`, 'p-tiempo'));
+  pasos.push(paso(++n, 'Productos', `<div class="prods">${f.items.map(i => {
+    const s = st[i.id], pinfo = productoPorId(i.id);
+    let q;
+    if (s && s.queda != null) {
+      const queda = s.queda - (+i.cant - +i.orig);
+      const cls = queda < 0 ? 'neg' : (pinfo && queda <= pinfo.aviso_bajo ? 'bajo' : '');
+      q = `<small class="stock ${cls}">${queda < 0 ? 'Faltan ' + (-queda) : 'Quedan ' + queda}</small>`;
+    } else q = '<small class="stock">Sin conteo de stock</small>';
+    return `<div class="prod-row ${+i.cant > 0 ? 'con' : ''}" data-key="pi-${esc(i.id)}"><div class="prod-txt"><b>${esc(i.nombre)}</b><span>${fmt(i.precio)}</span>${q}</div>${stepper('pstep', i.id, +i.cant, 0)}</div>`;
+  }).join('')}</div>`, 'p-prod'));
+  pasos.push(paso(++n, 'Pago', `
+    <div class="tiles tres">${pagoTile('Efectivo', 'Efectivo', ICON.efectivo)}${pagoTile('Transferencia', 'Transferencia', ICON.transferencia)}${pagoTile('Débito', 'Débito', ICON.debito)}</div>
+    ${f.medio === 'Transferencia' ? `<div class="sub" data-key="cuenta"><p class="sub-t">¿A qué cuenta llegó?</p>${chips('cuenta', c.socios.map(s => [s, 'Cuenta de ' + s]), f.cuenta)}</div>` : ''}
+    ${f.medio === 'Débito' && !c.cuenta_debito ? '<p class="ayuda" data-key="nota-deb">Todavía no está definida la cuenta del débito. Se suma al total, pero queda aparte en el reparto.</p>' : ''}`, 'p-pago'));
 
-    <label class="lbl" for="f-nombre">${venta ? 'A nombre de' : 'Nombre del grupo'}</label>
-    <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: Yamilet" autocomplete="off" autocapitalize="words" enterkeyhint="done">
-
-    ${venta ? '' : `<div data-key="bloque-tiempo">
-      <label class="lbl">Tiempo y pulsera</label>
-      <div class="chips tiempos">${tiempoChip(30, c.precio_media)}${tiempoChip(60, c.precio_hora)}</div>
-    </div>`}
-
-    <label class="lbl">Productos</label>
-    <div class="prods">${f.items.map(i => {
-      const s = st[i.id], pinfo = productoPorId(i.id);
-      let q = '';
-      if (s && s.queda != null) {
-        const queda = s.queda - (+i.cant - +i.orig);
-        const cls = queda < 0 ? 'neg' : (pinfo && queda <= pinfo.aviso_bajo ? 'bajo' : '');
-        q = `<small class="${cls}">quedan ${queda}</small>`;
-      } else q = '<small class="muted">sin conteo</small>';
-      return `<div class="prod-row" data-key="pi-${esc(i.id)}"><div><b>${esc(i.nombre)}</b><small>${fmt(i.precio)}</small>${q}</div>${stepper('pstep', i.id, +i.cant, 0)}</div>`;
-    }).join('')}</div>
-
-    <label class="lbl">Pago</label>
-    ${chips('medio', ['Efectivo', 'Transferencia', 'Débito'], f.medio)}
-    ${f.medio === 'Transferencia' ? `<div class="sub" data-key="cuenta"><label class="lbl">¿A qué cuenta llegó?</label>${chips('cuenta', c.socios, f.cuenta)}</div>` : ''}
-    ${f.medio === 'Débito' && !c.cuenta_debito ? '<p class="nota" data-key="nota-deb">La cuenta del débito aún no está definida. Se suma al total pero queda aparte en el reparto.</p>' : ''}
-
-    ${venta ? '' : `<div data-key="bloque-horario"><div class="horario">
-      <div><label class="lbl" for="f-entrada">Entrada</label>
-        <input id="f-entrada" class="inp" type="time" step="300" data-field="entrada" value="${esc(entrada)}">
-      </div>
-      <div class="flecha" aria-hidden="true">→</div>
-      <div><label class="lbl">Salida</label><div class="salida">${salida}</div></div>
-    </div>
-    ${auto ? `<small class="muted hint">Son las ${ahoraHM()} · el turno parte a las ${entrada}</small>` : ''}</div>`}
-
+  return `${prev ? `<div class="editando" data-key="editando"><div><b>Editando ${esVenta(prev) ? 'la compra' : 'el grupo'} de ${esc(prev.nombre)}</b><small>Lo registró ${esc(prev.creadoPor || '?')} a las ${esc(horaDe(prev.creadoEn))}</small></div><button class="btn sm" data-act="cancelar">Cancelar</button></div>` : ''}
+  ${otroDia ? `<p class="aviso-dia" data-key="otro-dia">Estás registrando en el ${esc(fechaLarga(S.fecha))}, no hoy.</p>` : ''}
+  ${pasos.join('')}
+  <section class="paso extra" data-key="p-obs">
     <label class="lbl" for="f-obs">Observaciones</label>
     <input id="f-obs" class="inp" data-field="obs" value="${esc(f.obs)}" placeholder="Opcional" autocomplete="off">
-
     ${prev ? `<div class="devol">
       <label class="lbl" for="f-dev">Devolución al cliente</label>
       <input id="f-dev" class="inp" data-field="devolucion" inputmode="numeric" value="${esc(f.devolucion)}" placeholder="$0">
-      <label class="lbl">Se devolvió desde</label>${chips('devolucionDesde', ['Efectivo'].concat(c.socios), f.devolucionDesde)}
+      <p class="sub-t">Se devolvió con</p>${chips('devolucionDesde', [['Efectivo', 'Efectivo de la caja']].concat(c.socios.map(s => [s, 'Dinero de ' + s])), f.devolucionDesde)}
     </div>` : ''}
-
-    <div class="total">
-      <div><small>${esc(detalle.join(' + ') || 'Agrega personas o productos')}</small>
-      <b>${cnt(total)}</b>${prev && dev ? `<small>Neto tras devolución: ${fmt(total - dev)}</small>` : ''}</div>
-      <button class="btn primary big" data-act="guardar">${prev ? 'Guardar cambios' : venta ? 'Registrar venta' : 'Registrar grupo'}</button>
-    </div>
-    ${prev ? `<button class="btn ghost danger" data-act="${prev.estado === 'anulado' ? 'restaurar' : 'anular'}" data-v="${prev.id}">${prev.estado === 'anulado' ? 'Restaurar' : 'Anular'}</button>` : ''}
   </section>
-  ${!prev ? vistaActivosMini() : ''}`;
+  ${prev ? `<button class="btn quitar" data-act="${prev.estado === 'anulado' ? 'restaurar' : 'anular'}" data-v="${prev.id}">${prev.estado === 'anulado' ? 'Restaurar este registro' : 'Anular este registro'}</button>` : ''}
+  <div class="accion" data-key="accion">
+    <div class="acc-total"><small>${esc(detalle.join(' + ') || 'Agrega personas o productos')}</small><b>${cnt(total)}</b>${prev && dev ? `<small>Con devolución: ${fmt(total - dev)}</small>` : ''}</div>
+    <button class="btn coral" data-act="guardar">${prev ? 'Guardar' : venta ? 'Registrar compra' : 'Registrar grupo'}</button>
+  </div>`;
 }
 
-function vistaActivosMini() {
-  const act = gruposActivos().sort((a, b) => segSalida(a) - segSalida(b));
-  if (!act.length) return '';
-  return `<section class="card" data-key="activos"><h3>En el agua ahora</h3>${act.map(r => {
-    const e = estadoGrupo(r);
-    return `<div class="mini ${e.cls}" data-key="m-${r.id}" data-act="edit" data-v="${r.id}"><i style="background:${colorHex(r.pulsera)}"></i><div class="mini-txt"><span>${esc(r.nombre)} · ${r.personas}p · ${+r.minutos === 60 ? '1 h' : '½ h'}</span>${barra(e)}</div><b>${esc(e.corto)}</b></div>`;
-  }).join('')}</section>`;
+/* ---------- Grupos ---------- */
+function anillo(e, color) {
+  const C = 2 * Math.PI * 22;
+  const resto = e.pct == null ? 0 : Math.max(0, 100 - e.pct);
+  const off = C * (1 - resto / 100);
+  const num = e.cls === 'prox' ? e.corto.replace('entra ', '') : e.corto.replace(' min', '');
+  return `<div class="anillo ${e.cls}" style="--c:${colorHex(color)}">
+    <svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="22" class="a-fondo"/><circle cx="26" cy="26" r="22" class="a-arco" style="stroke-dasharray:${C.toFixed(1)};stroke-dashoffset:${off.toFixed(1)}"/></svg>
+    <span><b>${esc(num)}</b><small>${e.cls === 'prox' ? 'entra' : 'min'}</small></span>
+  </div>`;
 }
-
+function tarjetaGrupo(x) {
+  const e = estadoGrupo(x);
+  const prods = Calc.productosDe(x);
+  const pago = x.medio === 'Transferencia' ? 'Transf. ' + x.cuenta : x.medio;
+  const tags = [`<span class="tag pul" style="--c:${colorHex(x.pulsera)}"><i></i>${+x.minutos === 60 ? '1 hora' : '½ hora'}</span>`,
+    `<span class="tag">${x.personas} ${+x.personas === 1 ? 'persona' : 'personas'}</span>`]
+    .concat(prods.map(p => `<span class="tag">${esc(p.nombre)} ×${p.cant}</span>`));
+  const linea = e.cls === 'prox' ? 'Entran a las ' + x.entrada + ' y salen a las ' + x.salida
+    : e.cls === 'pronto' ? '¡Salen a las ' + x.salida + '!' : 'Salen a las ' + x.salida;
+  return `<article class="g g-vivo ${e.cls}" data-key="g-${x.id}" data-act="edit" data-v="${x.id}">
+    ${anillo(e, x.pulsera)}
+    <div class="g-info"><b class="g-nom">${esc(x.nombre)}</b><div class="tags">${tags.join('')}</div><small>${esc(linea)}</small></div>
+    <div class="g-monto"><b>${fmt(x.total)}</b><small>${esc(pago)}</small></div>
+  </article>`;
+}
+function filaGrupo(x) {
+  const venta = esVenta(x);
+  const prods = Calc.productosDe(x);
+  const pago = x.medio === 'Transferencia' ? 'Transf. ' + x.cuenta : x.medio;
+  const partes = venta ? [textoProductos(prods)]
+    : [x.personas + (+x.personas === 1 ? ' persona' : ' personas') + ', ' + (+x.minutos === 60 ? '1 hora' : '½ hora'), x.entrada + ' a ' + x.salida].concat(prods.length ? [textoProductos(prods)] : []);
+  const quien = 'Registró ' + (x.creadoPor || '?') + ' ' + horaDe(x.creadoEn) +
+    (x.editadoPor ? (x.estado === 'anulado' ? ', anuló ' : ', editó ') + x.editadoPor + ' ' + horaDe(x.editadoEn) : '');
+  return `<article class="g g-fila ${x.estado === 'anulado' ? 'anulado' : ''} ${venta ? 'venta' : ''}" data-key="g-${x.id}" data-act="edit" data-v="${x.id}">
+    <i class="pul-dot" style="--c:${venta ? 'var(--line)' : colorHex(x.pulsera)}"></i>
+    <div class="g-info"><b class="g-nom">${esc(x.nombre)}</b><small>${esc(partes.join(', '))}</small>
+      ${+x.devolucion ? `<small class="g-dev">Devolución de ${fmt(x.devolucion)}</small>` : ''}
+      ${x.obs ? `<small class="g-obs">${esc(x.obs)}</small>` : ''}
+      <small class="g-quien">${esc(quien)}</small></div>
+    <div class="g-monto"><b>${fmt(x.total)}</b><small>${esc(pago)}</small></div>
+  </article>`;
+}
+function bloque(titulo, n, html, key) {
+  if (!n) return '';
+  return `<section class="bloque" data-key="${key}"><h2 class="bloque-h">${titulo}<span class="cuenta">${n}</span></h2>${html}</section>`;
+}
 function vistaDia() {
   const r = Calc.resumen(S.registros, S.gastos, S.config);
   const lista = S.registros.slice().sort((a, b) => minutosDe(a.entrada) - minutosDe(b.entrada));
-  const vacio = !lista.length;
-  return `<section class="stats">
-      <div><b>${cnt(r.grupos, 'n')}</b><small>grupos</small></div>
-      <div><b>${cnt(r.personas, 'n')}</b><small>personas</small></div>
-      <div><b>${cnt(r.unidades, 'n')}</b><small>productos</small></div>
+  if (!lista.length) {
+    return `<section class="vacio-card" data-key="vacio">
+      <div class="vacio-ic">${iconoOla(48)}</div>
+      <h2>Todavía no hay grupos</h2>
+      <p>Los grupos que registres el ${esc(fechaLarga(S.fecha).toLowerCase())} aparecen aquí, con el tiempo que les queda.</p>
+      ${diaCerrado() ? '' : '<button class="btn coral" data-act="tab" data-v="registrar">Registrar el primer grupo</button>'}
+      ${DEMO && !diaCerrado() ? '<button class="btn" data-act="ejemplo">Cargar un día de ejemplo</button>' : ''}
+    </section>`;
+  }
+  const vivos = lista.filter(x => x.estado !== 'anulado' && !esVenta(x));
+  const grupos = { agua: [], prox: [], fin: [] };
+  vivos.forEach(x => {
+    const e = estadoGrupo(x);
+    if (e.cls === 'activo' || e.cls === 'pronto') grupos.agua.push(x);
+    else if (e.cls === 'prox') grupos.prox.push(x);
+    else grupos.fin.push(x);
+  });
+  grupos.agua.sort((a, b) => segSalida(a) - segSalida(b));
+  const ventas = lista.filter(x => x.estado !== 'anulado' && esVenta(x));
+  const anulados = lista.filter(x => x.estado === 'anulado');
+  const enAgua = grupos.agua.reduce((s, x) => s + (+x.personas), 0);
+  const esHoy = S.fecha === hoy();
+
+  return `<section class="cifras" data-key="cifras">
+      ${esHoy ? `<div class="c-agua"><b>${cnt(enAgua, 'n')}</b><small>${enAgua === 1 ? 'persona' : 'personas'} en el agua</small></div>` : ''}
+      <div><b>${cnt(r.grupos, 'n')}</b><small>grupos, ${r.personas} personas</small></div>
       <div><b>${cnt(r.recaudado)}</b><small>recaudado</small></div>
     </section>
-    ${vacio ? `<section class="card vacio" data-key="vacio"><p>No hay grupos registrados el ${esc(fechaLarga(S.fecha))}.</p>
-      <button class="btn primary" data-act="tab" data-v="registrar">Registrar el primero</button>
-      ${DEMO ? '<button class="btn ghost" data-act="ejemplo">Cargar día de ejemplo (planilla 9 de marzo)</button>' : ''}</section>` : ''}
-    ${lista.map(x => {
-      const e = estadoGrupo(x);
-      const pago = x.medio === 'Transferencia' ? 'Transf. ' + x.cuenta : x.medio;
-      const prods = Calc.productosDe(x);
-      const venta = esVenta(x);
-      const det = venta
-        ? ['Venta de productos', textoProductos(prods), x.entrada, pago]
-        : [x.personas + ' pers', (+x.minutos === 60 ? '1 h' : '½ h'), x.entrada + '–' + x.salida, prods.length ? textoProductos(prods) : '', pago];
-      return `<article class="grupo ${e.cls}" data-key="g-${x.id}" data-act="edit" data-v="${x.id}">
-        <i class="pulsera" style="background:${venta ? 'var(--line)' : colorHex(x.pulsera)}" title="${esc(x.pulsera)}"></i>
-        <div class="g-main">
-          <div class="g-top"><b>${esc(x.nombre)}</b><span class="g-total">${fmt(x.total)}</span></div>
-          <div class="g-det">${esc(det.filter(Boolean).join(' · '))}</div>
-          ${e.txt ? `<div class="g-estado">${esc(e.txt)}</div>` : ''}
-          ${barra(e)}
-          ${+x.devolucion ? `<div class="g-dev">Devolución ${fmt(x.devolucion)} (${esc(x.devolucionDesde)})</div>` : ''}
-          ${x.obs ? `<div class="g-obs">${esc(x.obs)}</div>` : ''}
-          <div class="g-quien">Registró ${esc(x.creadoPor || '?')} ${esc(horaDe(x.creadoEn))}${x.editadoPor ? ' · ' + (x.estado === 'anulado' ? 'anuló' : 'editó') + ' ' + esc(x.editadoPor) + ' ' + esc(horaDe(x.editadoEn)) : ''}</div>
-        </div>
-      </article>`;
-    }).join('')}`;
+    ${bloque('En el agua', grupos.agua.length, grupos.agua.map(tarjetaGrupo).join(''), 'b-agua')}
+    ${bloque('Por entrar', grupos.prox.length, grupos.prox.map(tarjetaGrupo).join(''), 'b-prox')}
+    ${bloque(esHoy ? 'Terminados' : 'Grupos', grupos.fin.length, grupos.fin.slice().reverse().map(filaGrupo).join(''), 'b-fin')}
+    ${bloque('Compras sin entrada', ventas.length, ventas.map(filaGrupo).join(''), 'b-venta')}
+    ${bloque('Anulados', anulados.length, anulados.map(filaGrupo).join(''), 'b-anul')}`;
 }
 
+/* ---------- Inventario ---------- */
 function vistaInventario() {
   const st = stockHoy();
   const f = S.iform;
   const prods = S.config.productos;
+  const cerrado = diaCerrado();
   if (!f.producto || !productoPorId(f.producto)) f.producto = prods[0] ? prods[0].id : '';
   const tipo = TIPOS_MOV.find(t => t[0] === f.tipo) || TIPOS_MOV[0];
   const movs = S.inventario.slice().reverse();
-  const fuenteTxt = { conteo: 'contado hoy', anterior: 'lo que quedó el día anterior', sin: '' };
+  const fuenteTxt = { conteo: 'contado hoy', anterior: 'quedó de antes', sin: '' };
   const tipoTxt = { inicial: 'Stock al abrir', ingreso: 'Llegó mercadería', ajuste: 'Corrección por conteo' };
 
   return `${prods.map(p => {
     const s = st[p.id];
     const conocido = s.queda != null;
-    const cls = !conocido ? 'sin' : s.queda < 0 ? 'neg' : s.queda <= p.aviso_bajo ? 'bajo' : '';
+    const cls = !conocido ? 'sin' : s.queda < 0 ? 'neg' : s.queda <= p.aviso_bajo ? 'bajo' : 'ok';
+    const base = (s.inicio || 0) + s.entradas;
+    const pct = conocido && base > 0 ? Math.max(0, Math.min(100, s.queda / base * 100)) : 0;
     return `<section class="card prod ${cls}" data-key="p-${esc(p.id)}">
-      <div class="p-top"><div><h3>${esc(p.nombre)}</h3><small class="muted">${fmt(p.precio)} c/u</small></div>
-        <div class="p-queda">${conocido ? `<b>${cnt(s.queda, 'n')}</b><small>quedan</small>` : '<b>—</b><small>falta contar</small>'}</div></div>
-      ${conocido && s.queda <= p.aviso_bajo ? `<p class="nota" data-key="bajo">${s.queda < 0 ? 'El stock dio negativo: cuenta de nuevo con "Contar ahora".' : 'Quedan pocas.'}</p>` : ''}
-      ${!conocido ? `<p class="nota" data-key="sin">Registra cuántas hay con "Stock al abrir" (o "Contar ahora" si ya empezaron a vender).</p>` : ''}
+      <div class="p-top">
+        <div><h2>${esc(p.nombre)}</h2><small>${fmt(p.precio)} cada una</small></div>
+        <div class="p-queda">${conocido ? `<b>${cnt(s.queda, 'n')}</b><small>${s.queda === 1 ? 'queda' : 'quedan'}</small>` : '<b>?</b><small>falta contar</small>'}</div>
+      </div>
+      ${conocido ? `<div class="p-barra"><span style="width:${pct}%"></span></div>` : ''}
+      ${conocido && s.queda < 0 ? '<p class="ayuda alerta" data-key="neg">El stock dio negativo. Cuenta lo que hay con "Contar ahora".</p>'
+        : conocido && s.queda <= p.aviso_bajo ? '<p class="ayuda alerta" data-key="bajo">Quedan pocas.</p>' : ''}
+      ${!conocido ? '<p class="ayuda" data-key="sin">Registra cuántas hay con "Stock al abrir", o con "Contar ahora" si ya empezaron a vender.</p>' : ''}
       <div class="p-grid">
-        <div><small>Al abrir</small><b>${s.inicio == null ? '—' : s.inicio}</b>${s.inicio != null ? `<em>${fuenteTxt[s.fuente]}</em>` : ''}</div>
+        <div><small>Al abrir</small><b>${s.inicio == null ? '–' : s.inicio}</b>${s.inicio != null ? `<em>${fuenteTxt[s.fuente]}</em>` : ''}</div>
         <div><small>Llegaron</small><b>+${s.entradas}</b></div>
         <div><small>Vendidas</small><b>−${s.vendidas}</b></div>
         <div><small>Ajustes</small><b>${s.ajustes > 0 ? '+' : ''}${s.ajustes}</b></div>
@@ -928,91 +1044,102 @@ function vistaInventario() {
     </section>`;
   }).join('')}
 
-  <section class="card">
-    <h3>Registrar movimiento</h3>
-    ${prods.length > 1 ? `<label class="lbl">Producto</label>${chips('producto', prods.map(p => [p.id, p.nombre]), f.producto, 'iset')}` : ''}
-    <label class="lbl">¿Qué pasó?</label>
+  ${cerrado ? '' : `<section class="card" data-key="mov-form">
+    <h2 class="card-h">Anotar en el inventario</h2>
+    ${prods.length > 1 ? `<p class="sub-t">Producto</p>${chips('producto', prods.map(p => [p.id, p.nombre]), f.producto, 'iset')}` : ''}
+    <p class="sub-t">¿Qué pasó?</p>
     ${chips('tipo', TIPOS_MOV.map(t => [t[0], t[1]]), f.tipo, 'iset')}
     <label class="lbl" for="i-cant">${tipo[2]}</label>
     <div class="row2">
       <input id="i-cant" class="inp" data-ifield="cantidad" value="${esc(f.cantidad)}" inputmode="numeric" placeholder="Cantidad" autocomplete="off">
       <input class="inp" data-ifield="nota" value="${esc(f.nota)}" placeholder="Nota (opcional)" autocomplete="off">
     </div>
-    ${f.tipo === 'conteo' ? '<small class="muted hint">Cuenta lo que hay físicamente. Si no coincide con el sistema, se corrige y queda anotada la diferencia.</small>' : ''}
-    <button class="btn primary" data-act="guardar-mov">Guardar</button>
-  </section>
+    ${f.tipo === 'conteo' ? '<p class="ayuda" data-key="ayuda-conteo">Cuenta lo que hay físicamente. Si no coincide con lo que dice la app, se corrige y queda anotada la diferencia.</p>' : ''}
+    <button class="btn coral" data-act="guardar-mov">Guardar</button>
+  </section>`}
 
-  <section class="card">
-    <h3>Movimientos del día</h3>
+  <section class="card" data-key="movs">
+    <h2 class="card-h">Movimientos del día</h2>
     ${movs.length ? movs.map(m => {
       const p = productoPorId(m.producto);
       const anul = m.estado === 'anulado';
       const signo = m.tipo === 'ingreso' ? '+' + m.cantidad : m.tipo === 'ajuste' ? (m.cantidad > 0 ? '+' : '') + m.cantidad : String(m.cantidad);
-      return `<div class="fila mov ${anul ? 'anulado' : ''}" data-key="mv-${m.id}"><span>${esc(tipoTxt[m.tipo] || m.tipo)} · ${esc(p ? p.nombre : m.producto)}<small>${esc(m.creadoPor || '')} ${esc(horaDe(m.creadoEn))}${m.nota ? ' · ' + esc(m.nota) : ''}${anul ? ' · anulado por ' + esc(m.editadoPor || '') : ''}</small></span><b>${esc(signo)}</b>${anul ? '' : `<button class="x" data-act="anular-mov" data-v="${m.id}" aria-label="Anular movimiento">×</button>`}</div>`;
-    }).join('') : '<p class="muted" data-key="sin-mov">Sin movimientos hoy. Las ventas se descuentan solas al registrar cada grupo.</p>'}
+      return `<div class="fila mov ${anul ? 'anulado' : ''}" data-key="mv-${m.id}"><span>${esc(tipoTxt[m.tipo] || m.tipo)}, ${esc(p ? p.nombre.toLowerCase() : m.producto)}<small>${esc(m.creadoPor || '')} a las ${esc(horaDe(m.creadoEn))}${m.nota ? '. ' + esc(m.nota) : ''}${anul ? '. Anulado por ' + esc(m.editadoPor || '') : ''}</small></span><b>${esc(signo)}</b>${anul || cerrado ? '' : `<button class="x" data-act="anular-mov" data-v="${m.id}" aria-label="Anular movimiento">×</button>`}</div>`;
+    }).join('') : '<p class="muted" data-key="sin-mov">Nada anotado hoy. Las ventas se descuentan solas al registrar cada grupo.</p>'}
   </section>
-  <p class="muted pie">Para agregar productos o cambiar precios, usa la pestaña <b>Productos</b> de la planilla.</p>`;
+  <p class="pie">Para agregar productos o cambiar precios, usa la pestaña Productos de la planilla.</p>`;
 }
 
+/* ---------- Caja ---------- */
 function vistaCaja() {
   const r = Calc.resumen(S.registros, S.gastos, S.config);
   const g = S.gform, c = S.config;
-  const cambiosPostCierre = S.cierre && Math.round(S.cierre.neto) !== Math.round(r.netoTotal);
+  const cerrado = diaCerrado();
   const fila = (l, v, cls, key) => `<div class="fila ${cls || ''}"${key ? ` data-key="${key}"` : ''}><span>${l}</span><b>${v}</b></div>`;
+  const medios = [['Efectivo', r.efectivo, '#ffc93c']]
+    .concat(r.socios.map((s, i) => ['Transferencias a ' + s, r.transf[s] || 0, COLOR_PAGO[i % COLOR_PAGO.length]]))
+    .concat(r.debito || c.cuenta_debito ? [['Débito' + (r.cuentaDebito ? ' (cuenta de ' + r.cuentaDebito + ')' : ''), r.debito, '#ec4a2c']] : []);
+  const sumaMedios = medios.reduce((s, m) => s + m[1], 0);
+  const cambiosPostCierre = S.cierre && S.cierre.estado === 'cerrada' && Math.round(+S.cierre.neto) !== Math.round(r.netoTotal);
 
-  return `<section class="card">
-    <h3>Ingresos por medio de pago</h3>
-    ${fila('Efectivo', cnt(r.efectivo))}
-    ${r.socios.map(s => fila('Transferencias a ' + esc(s), cnt(r.transf[s] || 0), '', 't-' + s)).join('')}
-    ${r.debito || c.cuenta_debito ? fila('Débito' + (r.cuentaDebito ? ' (cuenta ' + esc(r.cuentaDebito) + ')' : ' · cuenta pendiente'), cnt(r.debito), '', 'deb') : ''}
-    ${r.devol ? fila('Devoluciones', '−' + fmt(r.devol), 'neg', 'devol') : ''}
-    ${fila('Total recaudado', cnt(r.recaudado), 'tot', 'tot')}
+  return `<section class="total-dia" data-key="total">
+    <small>Total del día</small>
+    <b class="t-num">${cnt(r.recaudado)}</b>
+    ${r.devol ? `<small class="t-nota">Ya descontadas devoluciones por ${fmt(r.devol)}</small>` : ''}
+    <div class="split" role="img" aria-label="Cómo se pagó">${sumaMedios ? medios.filter(m => m[1] > 0).map(m => `<span style="flex-grow:${m[1]};background:${m[2]}"></span>`).join('') : '<span class="vacia"></span>'}</div>
+    <ul class="leyenda">${medios.map(m => `<li data-key="l-${esc(m[0])}"><i style="background:${m[2]}"></i><span>${esc(m[0])}</span><b>${cnt(m[1])}</b></li>`).join('')}</ul>
   </section>
 
-  <section class="card">
-    <h3>Qué se vendió</h3>
-    ${fila('Entradas ½ hora <small>' + r.personasMedia + ' personas</small>', cnt(r.ventaMedia), '', 'vm')}
-    ${fila('Entradas 1 hora <small>' + r.personasHora + ' personas</small>', cnt(r.ventaHora), '', 'vh')}
+  <section class="card" data-key="vendido">
+    <h2 class="card-h">Qué se vendió</h2>
+    ${fila('Entradas de ½ hora <small>' + r.personasMedia + ' personas</small>', cnt(r.ventaMedia), '', 'vm')}
+    ${fila('Entradas de 1 hora <small>' + r.personasHora + ' personas</small>', cnt(r.ventaHora), '', 'vh')}
     ${Object.keys(r.porProducto).map(k => fila(esc(r.porProducto[k].nombre) + ' <small>' + r.porProducto[k].cant + ' unidades</small>', cnt(r.porProducto[k].monto), '', 'vp-' + k)).join('')}
   </section>
 
-  <section class="card">
-    <h3>Gastos del día</h3>
-    ${r.listaGastos.length ? r.listaGastos.map(x => `<div class="fila gasto" data-key="x-${x.id}"><span>${esc(x.concepto)}<small>${x.pagadoDesde === 'Efectivo' ? 'De la caja' : 'Lo pagó ' + esc(x.pagadoDesde)} · ${esc(x.creadoPor || '')}</small></span><b>−${fmt(x.monto)}</b><button class="x" data-act="anular-gasto" data-v="${x.id}" aria-label="Anular gasto">×</button></div>`).join('') : '<p class="muted" data-key="sin-gastos">Sin gastos registrados.</p>'}
-    <div class="gform" data-key="gform">
-      <div class="chips mini-chips">${['Almuerzo', 'Bencina', 'Hielo', 'Bolsas'].map(q => `<button type="button" class="chip" data-act="gq" data-v="${q}">${q}</button>`).join('')}</div>
+  <section class="card" data-key="gastos">
+    <h2 class="card-h">Gastos</h2>
+    ${r.listaGastos.length ? r.listaGastos.map(x => `<div class="fila gasto" data-key="x-${x.id}"><span>${esc(x.concepto)}<small>${x.pagadoDesde === 'Efectivo' ? 'Con efectivo de la caja' : 'Con dinero de ' + esc(x.pagadoDesde)}, anotó ${esc(x.creadoPor || '')}</small></span><b>−${fmt(x.monto)}</b>${cerrado ? '' : `<button class="x" data-act="anular-gasto" data-v="${x.id}" aria-label="Anular gasto">×</button>`}</div>`).join('') : '<p class="muted" data-key="sin-gastos">Sin gastos anotados.</p>'}
+    ${r.totalGastos ? fila('Total de gastos', '−' + fmt(r.totalGastos), 'tot neg', 'tg') : ''}
+    ${cerrado ? '' : `<div class="gform" data-key="gform">
+      <div class="chips mini">${['Almuerzo', 'Bencina', 'Hielo', 'Bolsas'].map(q => `<button type="button" class="chip" data-act="gq" data-v="${q}">${q}</button>`).join('')}</div>
       <div class="row2">
-        <input class="inp" data-gfield="concepto" value="${esc(g.concepto)}" placeholder="Concepto" autocomplete="off">
+        <input class="inp" data-gfield="concepto" value="${esc(g.concepto)}" placeholder="En qué se gastó" autocomplete="off">
         <input class="inp" data-gfield="monto" value="${esc(g.monto)}" placeholder="Monto" inputmode="numeric">
       </div>
-      <label class="lbl">Pagado con</label>
-      ${chips('pagadoDesde', [['Efectivo', 'Efectivo de la caja']].concat(c.socios.map(s => [s, 'Plata de ' + s])), g.pagadoDesde, 'gset')}
-      <button class="btn" data-act="agregar-gasto">Agregar gasto</button>
-    </div>
-    ${r.totalGastos ? fila('Total gastos', '−' + fmt(r.totalGastos), 'neg', 'tg') : ''}
+      <p class="sub-t">Se pagó con</p>
+      ${chips('pagadoDesde', [['Efectivo', 'Efectivo de la caja']].concat(c.socios.map(s => [s, 'Dinero de ' + s])), g.pagadoDesde, 'gset')}
+      <button class="btn" data-act="agregar-gasto">Anotar gasto</button>
+    </div>`}
   </section>
 
-  <section class="card reparto">
-    <h3>Reparto entre socios</h3>
-    ${fila('Neto del día', cnt(r.netoTotal), 'tot')}
-    ${r.debitoPendiente ? `<p class="nota" data-key="debpend">Hay ${fmt(r.debitoPendiente)} en débito sin cuenta definida. No se reparte todavía.</p>` : ''}
-    ${fila('A cada uno (÷' + r.socios.length + ')', cnt(r.parte), '', 'parte')}
-    ${fila('Efectivo en caja', cnt(r.caja), '', 'caja')}
-    <div class="socios" data-key="socios">${r.socios.map(s => {
+  <section class="card reparto" data-key="reparto">
+    <h2 class="card-h">Reparto entre socios</h2>
+    <p class="frase">Neto del día <b>${cnt(r.netoTotal)}</b>. A cada socio le toca <b>${cnt(r.parte)}</b>.</p>
+    ${r.debitoPendiente ? `<p class="ayuda" data-key="debpend">Hay ${fmt(r.debitoPendiente)} en débito que no se reparte hasta definir la cuenta.</p>` : ''}
+    <div class="socios">${r.socios.map((s, i) => {
       const e = r.entregar[s];
-      return `<div class="socio" data-key="s-${esc(s)}"><h4>${esc(s)}</h4>
-        <div class="fila"><span>Ya tiene en su cuenta</span><b>${cnt(r.tiene[s])}</b></div>
-        ${e >= 0 ? `<div class="fila hl" data-key="lleva"><span>Se lleva en efectivo</span><b>${cnt(e)}</b></div>` : `<div class="fila hl neg" data-key="debe"><span>Debe transferir</span><b>${cnt(-e)}</b></div>`}
+      return `<div class="socio" data-key="s-${esc(s)}" style="--c:${COLOR_PAGO[i % COLOR_PAGO.length]}">
+        <div class="s-top"><span class="avatar">${inicial(s)}</span><b>${esc(s)}</b></div>
+        <small>Ya recibió ${fmt(r.tiene[s])} en su cuenta</small>
+        ${e >= 0 ? `<div class="s-lleva"><small>Se lleva en efectivo</small><b>${cnt(e)}</b></div>` : `<div class="s-lleva debe"><small>Debe transferir</small><b>${cnt(-e)}</b></div>`}
       </div>`;
     }).join('')}</div>
-    ${r.ajustes.map(a => `<p class="nota" data-key="aj-${esc(a.de)}">${esc(a.de)} recibió más de su parte por transferencia: debe pasarle ${fmt(a.monto)} ${a.a ? 'a ' + esc(a.a) : 'a los demás'}.</p>`).join('')}
+    ${r.ajustes.map(a => `<p class="ayuda alerta" data-key="aj-${esc(a.de)}">${esc(a.de)} recibió más que su parte por transferencias: debe pasarle ${fmt(a.monto)} ${a.a ? 'a ' + esc(a.a) : 'a los demás'}.</p>`).join('')}
+    <div class="caja-check"><span>En la caja debería haber</span><b>${cnt(r.caja)}</b><small>en efectivo</small></div>
   </section>
 
-  <section class="card cierre">
-    ${S.cierre ? `<p class="ok-txt" data-key="cerrada">Caja cerrada por <b>${esc(S.cierre.cerradoPor)}</b> a las ${esc(horaDe(S.cierre.cerradoEn))}.</p>` : ''}
-    ${cambiosPostCierre ? '<p class="nota" data-key="post">Hubo cambios después del cierre. Vuelve a cerrar para actualizar la planilla.</p>' : ''}
-    <button class="btn primary big" data-act="cerrar">${S.cierre ? 'Volver a cerrar caja' : 'Cerrar caja del día'}</button>
-    <button class="btn ghost" data-act="compartir">Compartir resumen (WhatsApp)</button>
+  <section class="card cierre ${cerrado ? 'cerrada' : ''}" data-key="cierre">
+    ${cerrado ? `<div class="c-estado"><span class="cerrado-ic">${ICON.lock}</span><div><b>Caja cerrada</b><small>La cerró ${esc(S.cierre.cerradoPor)} a las ${esc(horaDe(S.cierre.cerradoEn))}.</small></div></div>
+      ${linkArchivo('btn')}
+      ${!DEMO && !(S.cierre.archivo) ? '<p class="ayuda" data-key="arch-pend">El archivo del día aparece aquí cuando el cierre llega a la planilla.</p>' : ''}
+      ${S.cierre.archivo && !/^https?:/.test(S.cierre.archivo) ? `<p class="ayuda alerta" data-key="arch-err">${esc(S.cierre.archivo)}</p>` : ''}
+      ${cambiosPostCierre ? '<p class="ayuda alerta" data-key="post">Los totales no coinciden con lo que se cerró. Revisa con un administrador.</p>' : ''}`
+    : `${S.cierre && S.cierre.estado === 'reabierta' ? `<p class="ayuda alerta" data-key="reab">La caja fue reabierta por ${esc(S.cierre.reabiertoPor || '')} a las ${esc(horaDe(S.cierre.reabiertoEn))}. Vuelve a cerrarla cuando termines.</p>` : ''}
+      <button class="btn coral big" data-act="cerrar">Cerrar caja del día</button>
+      <p class="ayuda">Al cerrar, el día queda bloqueado y se guarda una planilla con todo en la carpeta Cajas diarias del Drive.</p>`}
+    <button class="btn" data-act="compartir">${ICON.compartir}<span>Compartir resumen</span></button>
+    ${cerrado && esAdmin() ? '<button class="btn quitar" data-act="reabrir">Reabrir caja (administrador)</button>' : ''}
   </section>`;
 }
 
@@ -1049,6 +1176,7 @@ const ACT = {
   guardar: guardarGrupo,
   cancelar() { irA('dia', () => { S.editId = null; S.form = nuevoForm(); }); },
   edit(v) {
+    if (bloqueado()) return;
     const r = S.registros.find(x => x.id === v); if (!r) return;
     irA('registrar', () => { S.editId = v; S.form = formDesde(r); });
   },
@@ -1063,6 +1191,8 @@ const ACT = {
   'anular-gasto': anularGasto,
   'alerta-ok': cerrarAlerta,
   cerrar: cerrarCaja,
+  reabrir: reabrirCaja,
+  'ir-hoy'() { S.fecha = hoy(); S.editId = null; loadDay(); S.form = nuevoForm(); render(); sync(); },
   compartir,
   ejemplo: cargarEjemplo
 };
