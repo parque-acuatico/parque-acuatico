@@ -7,13 +7,14 @@ const API_URL = ((window.APP_CONFIG || {}).API_URL || '').trim();
 // Modo de prueba: se abre con ?demo=1 en la dirección. Trae días inventados y no toca la planilla real.
 const PRUEBA = /[?&]demo=1(&|$)/.test(location.search);
 const DEMO = !API_URL || PRUEBA;
+const USUARIOS_PRUEBA = ['Usuario 1', 'Usuario 2'];
 const TABS = ['registrar', 'dia', 'inventario', 'caja'];
 const REDUCE = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 const DEFAULT_CONFIG = {
   precio_media: 6000,
   precio_hora: 10000,
-  socios: ['Víctor', 'Yessi'],
+  socios: ['Usuario 1'],
   cuenta_debito: '',
   color_media: 'Verde',
   color_hora: 'Rojo',
@@ -645,13 +646,14 @@ async function compartir() {
 /* ---------- datos de ejemplo (solo demo) ---------- */
 function cargarEjemplo() {
   const c = S.config, socios = c.socios, pc = productoPorId('calcetas') || c.productos[0];
+  const cta = k => socios[k % socios.length];
   const filas = [
-    [4, 'Usett', 30, 0, 'Efectivo', '', '13:10'], [2, 'Yamilet', 30, 2, 'Transferencia', socios[0], '14:20'],
-    [2, 'Felipe', 30, 2, 'Efectivo', '', '15:50'], [2, 'Gerardo Rodríguez', 30, 2, 'Transferencia', socios[0], '16:35'],
-    [2, 'Leonor Núñez', 30, 0, 'Transferencia', socios[1], '17:00'], [2, 'Gabriel Espínola', 30, 2, 'Efectivo', '', '17:15'],
-    [4, 'Catalina Olivina', 30, 4, 'Transferencia', socios[1], '17:15'], [7, 'Víctor Alvial', 60, 0, 'Efectivo', '', '17:30'],
-    [2, 'Estrella Osorio', 30, 2, 'Transferencia', socios[1], '17:45'], [3, 'Saúl Díaz', 60, 0, 'Transferencia', socios[1], '18:00', 10000],
-    [4, 'Benjamín Fernández', 30, 1, 'Efectivo', '', '18:20'], [2, 'Neta', 30, 0, 'Efectivo', '', '18:35']
+    [4, 'Grupo 1', 30, 0, 'Efectivo', '', '13:10'], [2, 'Grupo 2', 30, 2, 'Transferencia', cta(0), '14:20'],
+    [2, 'Grupo 3', 30, 2, 'Efectivo', '', '15:50'], [2, 'Grupo 4', 30, 2, 'Transferencia', cta(0), '16:35'],
+    [2, 'Grupo 5', 30, 0, 'Transferencia', cta(1), '17:00'], [2, 'Grupo 6', 30, 2, 'Efectivo', '', '17:15'],
+    [4, 'Grupo 7', 30, 4, 'Transferencia', cta(1), '17:15'], [7, 'Grupo 8', 60, 0, 'Efectivo', '', '17:30'],
+    [2, 'Grupo 9', 30, 2, 'Transferencia', cta(1), '17:45'], [3, 'Grupo 10', 60, 0, 'Transferencia', cta(1), '18:00', 10000],
+    [4, 'Grupo 11', 30, 1, 'Efectivo', '', '18:20'], [2, 'Grupo 12', 30, 0, 'Efectivo', '', '18:35']
   ];
   S.inventario.push({ id: uid(), fecha: S.fecha, producto: pc.id, tipo: 'inicial', cantidad: 30, nota: 'Ejemplo', estado: 'ok', creadoPor: S.user.nombre, creadoEn: S.fecha + ' 13:00:00' });
   filas.forEach((f, i) => {
@@ -681,9 +683,8 @@ function borrarPrueba() {
 }
 function sembrarPrueba() {
   const c = S.config, socios = c.socios, pc = c.productos[0];
-  const NOMBRES = ['Usett', 'Yamilet', 'Felipe', 'Gerardo Rodríguez', 'Leonor Núñez', 'Catalina Olivares', 'Gabriel Espinoza',
-    'Estrella Osorio', 'Víctor Alvial', 'Saúl Díaz', 'Benjamín Fernández', 'Antonia', 'Martina Soto', 'Tomás', 'Florencia Rojas',
-    'Ignacio', 'Javiera Muñoz', 'Matías', 'Camila Pérez', 'Joaquín', 'Isidora', 'Agustín Vega', 'Trinidad', 'Vicente', 'Emilia Contreras'];
+  const usuarios = USUARIOS_PRUEBA;
+  let numGrupo = 0;
   let semilla = 7;
   const azar = () => { semilla = (semilla * 16807) % 2147483647; return (semilla - 1) / 2147483646; };
   const elegir = a => a[Math.floor(azar() * a.length)];
@@ -698,10 +699,10 @@ function sembrarPrueba() {
     const r = azar();
     const medio = o.medio || (r < .5 ? 'Efectivo' : r < .9 ? 'Transferencia' : 'Débito');
     const entrada = hm(minEntrada);
-    const quien = o.quien || elegir(socios);
+    const quien = o.quien || elegir(usuarios);
     const rec = {
       id: 'demo' + (++n), fecha, entrada, salida: minutos ? sumarMin(entrada, minutos) : '',
-      personas, nombre: o.nombre || NOMBRES[(n * 7) % NOMBRES.length], pulsera: minutos ? colorDe(minutos) : '', minutos,
+      personas, nombre: o.nombre || 'Grupo ' + (++numGrupo), pulsera: minutos ? colorDe(minutos) : '', minutos,
       productos: cant ? [{ id: pc.id, nombre: pc.nombre, cant, precio: pc.precio }] : [],
       calcetas: cant, precioCalceta: cant ? pc.precio : 0,
       medio, cuenta: medio === 'Transferencia' ? (o.cuenta || elegir(socios)) : '',
@@ -709,17 +710,17 @@ function sembrarPrueba() {
       devolucion: o.devolucion || 0, devolucionDesde: o.devolucion ? 'Efectivo' : '',
       estado: o.estado || 'ok', creadoPor: quien, creadoEn: fecha + ' ' + hm(minEntrada - 3) + ':00'
     };
-    if (o.estado === 'anulado') { rec.editadoPor = elegir(socios); rec.editadoEn = fecha + ' ' + hm(minEntrada + 2) + ':00'; }
+    if (o.estado === 'anulado') { rec.editadoPor = elegir(usuarios); rec.editadoEn = fecha + ' ' + hm(minEntrada + 2) + ':00'; }
     rec.total = Calc.totalGrupo(rec);
     return rec;
   };
   const movimiento = (fecha, minuto, tipo, cantidad, nota, quien) => ({
     id: 'demo-m' + (++n), fecha, producto: pc.id, tipo, cantidad, nota: nota || '', estado: 'ok',
-    creadoPor: quien || socios[0], creadoEn: fecha + ' ' + hm(minuto) + ':00'
+    creadoPor: quien || usuarios[0], creadoEn: fecha + ' ' + hm(minuto) + ':00'
   });
   const gasto = (fecha, minuto, concepto, monto, desde) => ({
     id: 'demo-g' + (++n), fecha, concepto, monto, pagadoDesde: desde || 'Efectivo', estado: 'ok',
-    creadoPor: elegir(socios), creadoEn: fecha + ' ' + hm(minuto) + ':00'
+    creadoPor: elegir(usuarios), creadoEn: fecha + ' ' + hm(minuto) + ':00'
   });
   const cerrar = (fecha, regs, gastos, quien, minuto) => {
     const r = Calc.resumen(regs, gastos, c);
@@ -728,39 +729,39 @@ function sembrarPrueba() {
   const guardarDia = (fecha, d) => LS.set('pa_day_' + fecha, Object.assign({ registros: [], gastos: [], inventario: [], cierre: null, stockPrevio: null }, d));
 
   // Anteayer: día completo, ya cerrado
-  const f2 = fechaMas(-2);
+  const f2 = fechaMas(-2); numGrupo = 0;
   const r2 = [];
   for (let m = 11 * 60; m <= 19 * 60; m += 25 + Math.floor(azar() * 25)) r2.push(grupo(f2, Math.ceil(m / 5) * 5));
-  r2.push(grupo(f2, 15 * 60 + 12, { personas: 0, calcetas: 2, nombre: 'Señora del quiosco', medio: 'Efectivo' }));
-  const g2 = [gasto(f2, 14 * 60, 'Almuerzo (3)', 15000), gasto(f2, 10 * 60 + 40, 'Bencina generador', 12000, socios[1])];
-  guardarDia(f2, { registros: r2, gastos: g2, inventario: [movimiento(f2, 10 * 60 + 45, 'inicial', 40, 'Conteo al abrir')], cierre: cerrar(f2, r2, g2, socios[0], 19 * 60 + 45) });
+  r2.push(grupo(f2, 15 * 60 + 12, { personas: 0, calcetas: 2, nombre: 'Compra de calcetas', medio: 'Efectivo' }));
+  const g2 = [gasto(f2, 14 * 60, 'Almuerzo (3)', 15000), gasto(f2, 10 * 60 + 40, 'Bencina generador', 12000, socios[socios.length - 1])];
+  guardarDia(f2, { registros: r2, gastos: g2, inventario: [movimiento(f2, 10 * 60 + 45, 'inicial', 40, 'Conteo al abrir')], cierre: cerrar(f2, r2, g2, usuarios[0], 19 * 60 + 45) });
 
   // Ayer: con llegada de mercadería, una devolución, un anulado y una diferencia en el conteo
-  const f1 = fechaMas(-1);
+  const f1 = fechaMas(-1); numGrupo = 0;
   const r1 = [];
   for (let m = 11 * 60 + 15; m <= 19 * 60; m += 22 + Math.floor(azar() * 28)) r1.push(grupo(f1, Math.ceil(m / 5) * 5));
-  r1.push(grupo(f1, 16 * 60, { personas: 3, minutos: 30, calcetas: 1, medio: 'Transferencia', cuenta: socios[1], nombre: 'Saúl Díaz', devolucion: 10000, obs: 'Pagó 1 hora y al final se quedó ½ hora' }));
+  r1.push(grupo(f1, 16 * 60, { personas: 3, minutos: 30, calcetas: 1, medio: 'Transferencia', cuenta: socios[socios.length - 1], nombre: 'Grupo con devolución', devolucion: 10000, obs: 'Pagó 1 hora y al final se quedó ½ hora' }));
   r1.push(grupo(f1, 17 * 60 + 20, { personas: 4, estado: 'anulado', nombre: 'Grupo duplicado', obs: 'Se registró dos veces' }));
   const g1 = [gasto(f1, 13 * 60 + 30, 'Almuerzo (2)', 10000), gasto(f1, 12 * 60, 'Hielo', 3000)];
-  const i1 = [movimiento(f1, 12 * 60 + 30, 'ingreso', 20, 'Llegó pedido', socios[1]),
-    movimiento(f1, 19 * 60 + 30, 'ajuste', -1, 'Conteo: faltó 1 (se mojó y se botó)', socios[1])];
-  guardarDia(f1, { registros: r1, gastos: g1, inventario: i1, cierre: cerrar(f1, r1, g1, socios[1], 19 * 60 + 50) });
+  const i1 = [movimiento(f1, 12 * 60 + 30, 'ingreso', 20, 'Llegó pedido', usuarios[1]),
+    movimiento(f1, 19 * 60 + 30, 'ajuste', -1, 'Conteo: faltó 1 (se mojó y se botó)', usuarios[1])];
+  guardarDia(f1, { registros: r1, gastos: g1, inventario: i1, cierre: cerrar(f1, r1, g1, usuarios[1], 19 * 60 + 50) });
 
   // Hoy: algunos terminados, dos en el agua (uno a punto de salir, para ver la alerta) y uno por entrar
-  const f0 = fechaMas(0);
+  const f0 = fechaMas(0); numGrupo = 0;
   const ahora = minutosDe(ahoraHM());
   const r0 = [];
   for (let m = Math.max(10 * 60 + 30, ahora - 200); m <= ahora - 45; m += 30 + Math.floor(azar() * 15)) r0.push(grupo(f0, Math.floor(m / 5) * 5));
-  r0.push(grupo(f0, Math.ceil((ahora - 28) / 5) * 5, { personas: 3, minutos: 30, calcetas: 2, nombre: 'Familia Rojas', medio: 'Efectivo' }));
-  r0.push(grupo(f0, Math.floor((ahora - 12) / 5) * 5, { personas: 6, minutos: 60, calcetas: 0, nombre: 'Cumpleaños Martina', medio: 'Transferencia', cuenta: socios[0] }));
-  r0.push(grupo(f0, minutosDe(entradaPropuesta()), { personas: 2, minutos: 30, calcetas: 2, nombre: 'Tomás', medio: 'Débito' }));
+  r0.push(grupo(f0, Math.ceil((ahora - 28) / 5) * 5, { personas: 3, minutos: 30, calcetas: 2, nombre: 'Grupo familiar', medio: 'Efectivo' }));
+  r0.push(grupo(f0, Math.floor((ahora - 12) / 5) * 5, { personas: 6, minutos: 60, calcetas: 0, nombre: 'Cumpleaños', medio: 'Transferencia', cuenta: socios[0] }));
+  r0.push(grupo(f0, minutosDe(entradaPropuesta()), { personas: 2, minutos: 30, calcetas: 2, nombre: 'Grupo por entrar', medio: 'Débito' }));
   guardarDia(f0, { registros: r0, gastos: [gasto(f0, Math.max(ahora - 60, 10 * 60), 'Almuerzo (2)', 10000)], inventario: [] });
 
   // Los grupos que ya terminaron antes de abrir la prueba no hacen sonar la alerta
   const vistos = {};
   r0.forEach(r => { if (r.minutos && minutosDe(r.entrada) + r.minutos <= ahora) vistos[r.id + '@' + r.salida] = 1; });
   LS.set('pa_avisos_' + f0, vistos);
-  LS.set('pa_semilla', 1);
+  LS.set('pa_semilla', 2);
 }
 
 /* ---------- login ---------- */
@@ -862,7 +863,7 @@ function bannerCerrado() {
 }
 
 function vistaLogin() {
-  const lista = DEMO ? S.config.socios : S.usuarios;
+  const lista = DEMO ? USUARIOS_PRUEBA : S.usuarios;
   const ops = lista.map(n => '<option>' + esc(n) + '</option>').join('');
   return `<div class="login">
     <div class="login-ola">
@@ -1010,7 +1011,7 @@ function vistaRegistrar() {
     <div class="personas">${stepper('step', 'personas', f.personas, 0, true)}</div>
     ${venta ? '<p class="ayuda" data-key="ayuda-venta">Con 0 personas se registra solo la compra de productos, sin entrar al agua.</p>' : ''}`, 'p-pers'));
   pasos.push(paso(++n, venta ? '¿A nombre de quién?' : 'Nombre del grupo', `
-    <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: Yamilet" autocomplete="off" autocapitalize="words" enterkeyhint="done">`, 'p-nom'));
+    <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: nombre de quien paga" autocomplete="off" autocapitalize="words" enterkeyhint="done">`, 'p-nom'));
   if (!venta) pasos.push(paso(++n, 'Tiempo', `
     <div class="tiles dos">${tiempoTile(30, c.precio_media)}${tiempoTile(60, c.precio_hora)}</div>
     <div class="horario">
@@ -1245,9 +1246,9 @@ function vistaCaja() {
 
   <section class="card reparto" data-key="reparto">
     <h2 class="card-h">Reparto entre socios</h2>
-    <p class="frase">Neto del día <b>${cnt(r.netoTotal)}</b>. A cada socio le toca <b>${cnt(r.parte)}</b>.</p>
+    <p class="frase">Neto del día <b>${cnt(r.netoTotal)}</b>. ${r.socios.length === 1 ? 'Todo corresponde a ' + esc(r.socios[0]) + '.' : `A cada socio le toca <b>${cnt(r.parte)}</b>.`}</p>
     ${r.debitoPendiente ? `<p class="ayuda" data-key="debpend">Hay ${fmt(r.debitoPendiente)} en débito que no se reparte hasta definir la cuenta.</p>` : ''}
-    <div class="socios">${r.socios.map((s, i) => {
+    <div class="socios ${r.socios.length === 1 ? 'uno' : ''}">${r.socios.map((s, i) => {
       const e = r.entregar[s];
       return `<div class="socio" data-key="s-${esc(s)}" style="--c:${COLOR_PAGO[i % COLOR_PAGO.length]}">
         <div class="s-top"><span class="avatar">${inicial(s)}</span><b>${esc(s)}</b></div>
@@ -1377,7 +1378,7 @@ setInterval(() => {
 setInterval(() => { if (S.user) sync(); }, 30000);
 
 /* ---------- inicio ---------- */
-if (PRUEBA && !LS.get('pa_semilla', null)) sembrarPrueba();
+if (PRUEBA && LS.get('pa_semilla', null) !== 2) { borrarPrueba(); S.user = null; sembrarPrueba(); }
 loadDay();
 if (S.user) S.form = nuevoForm();
 render();
