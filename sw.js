@@ -1,6 +1,6 @@
 // Guarda la app en el teléfono para que abra sin señal.
 // Si cambias algún archivo, sube este número para que los teléfonos tomen la versión nueva.
-const VERSION = 'pa-v3';
+const VERSION = 'pa-v4';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'calc.js', 'config.js', 'manifest.json', 'icon.svg',
   'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 

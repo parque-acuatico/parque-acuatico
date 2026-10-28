@@ -4,7 +4,10 @@ App para el celular que reemplaza la planilla de caja en papel. Registra cada gr
 
 ## Qué hace
 
-- **Registrar**: personas, nombre, tiempo (½ h / 1 h), pulsera, calcetas y medio de pago. Si es transferencia, a qué cuenta llegó. La hora de entrada se toma sola y la salida se calcula.
+- **Registrar**: personas, nombre, tiempo (½ h / 1 h), productos y medio de pago. Si es transferencia, a qué cuenta llegó. La hora de entrada se toma sola y la salida se calcula.
+- **Pulseras**: el color depende del tiempo (uno para ½ hora y otro para 1 hora). Se configura en `Config` (`color_media`, `color_hora`) y la app lo asigna sola.
+- **Productos**: en el mismo registro del grupo se suman las calcetas u otros productos al total. Con 0 personas queda como venta suelta (alguien que solo compra).
+- **Inventario**: stock de cada producto en el día. Las ventas se descuentan solas; se registra el stock al abrir, la mercadería que llega y los conteos (si no cuadra, se corrige y queda anotada la diferencia). Lo que queda pasa al día siguiente.
 - **Horario de 5 en 5**: la entrada se redondea a los 5 minutos siguientes (si son las 10:51, el turno parte a las 10:55).
 - **Alerta de término**: cuando se acaba el tiempo de un grupo, suena, vibra y aparece una ventana con el color de pulsera. Se repite cada 9 s hasta tocar "Listo" (máximo 3 min). Mientras hay grupos en el agua, la pantalla se mantiene encendida para que la alerta suene a tiempo.
 - **Grupos del día**: lista con la cuenta regresiva y barra de avance de cada grupo (se marca en naranjo cuando quedan 5 min), quién lo registró y quién lo editó. Tocando un grupo se puede corregir, registrar una devolución o anularlo.
@@ -73,11 +76,21 @@ Dónde vive cada cosa:
 | Pestaña | Para qué |
 |---|---|
 | `Usuarios` | Nombre, PIN, rol y activo (si/no). **Cambia los PIN de ejemplo (1111 y 2222).** Para sacar a alguien, pon `no` en activo. |
-| `Config` | Precios (`precio_media`, `precio_hora`, `precio_calceta`), socios, cuenta del débito y colores de pulsera. Los cambios llegan a los teléfonos en la siguiente sincronización. |
-| `Registros` | Un grupo por fila. Cada fila guarda el precio que se cobró, así cambiar precios no altera días pasados. |
+| `Config` | Precios de entrada (`precio_media`, `precio_hora`), colores de pulsera (`color_media`, `color_hora`), socios y cuenta del débito. Los cambios llegan a los teléfonos en la siguiente sincronización. (Si quedó una fila `precio_calceta` o `colores` de la versión anterior, ya no se usa.) |
+| `Productos` | Lo que se vende: `id` (una palabra, sin espacios, no cambiarlo después), `nombre`, `precio`, `activo` (si/no), `aviso_bajo` (avisa cuando quedan esa cantidad o menos) y `orden`. Para vender algo nuevo, agrega una fila. |
+| `Registros` | Un grupo o venta por fila. Cada fila guarda el precio que se cobró, así cambiar precios no altera días pasados. La columna `productos` dice qué compró. |
+| `Inventario` | Movimientos de stock: stock al abrir, llegadas de mercadería y correcciones por conteo, con quién los hizo. |
 | `Gastos` | Gastos del día y con qué se pagaron. |
-| `Cierres` | Un resumen por día cerrado, con quién lo cerró. |
+| `Cierres` | **La caja de cada día**: una fila por día cerrado con total, gastos, neto, efectivo, transferencias por socio, lo vendido, el reparto, el stock final y quién cerró. |
 | `Historial` | Registro de cada acción, quién la hizo y qué cambió. |
+
+### Dónde quedan guardadas las cajas
+
+Todo vive en esta planilla, en el Drive del correo del negocio. No hay otra base de datos.
+- Cada grupo se guarda en `Registros` apenas se registra (o cuando vuelve la señal).
+- Al tocar **Cerrar caja del día**, se escribe la fila del día en `Cierres`. Si se vuelve a cerrar, esa fila se actualiza.
+- Google guarda versiones de la planilla: **Archivo → Historial de versiones** permite ver o recuperar cómo estaba en cualquier momento.
+- Para un respaldo aparte: **Archivo → Descargar → Excel**, o **Archivo → Hacer una copia**.
 
 Para definir la cuenta del débito, escribe el nombre del socio en `cuenta_debito`. Mientras esté vacía, el débito se suma al total pero no se reparte.
 
@@ -94,4 +107,4 @@ Gastos y devoluciones pueden salir de la caja o de la plata de un socio. Si los 
 ## Actualizar
 
 - **Cambios en la app**: sube los archivos a GitHub y aumenta el número `VERSION` en `sw.js` para que los teléfonos tomen la versión nueva.
-- **Cambios en `Codigo.gs`**: Implementar → Administrar implementaciones → editar (lápiz) → Versión: **Nueva versión**. Así se mantiene la misma URL.
+- **Cambios en `Codigo.gs`**: pega el código nuevo encima del anterior y guarda. Luego Implementar → Administrar implementaciones → editar (lápiz) → Versión: **Nueva versión** → Implementar. Así se mantiene la misma URL. Las pestañas y columnas nuevas se crean solas la primera vez que la app se conecta; los datos existentes no se tocan.
