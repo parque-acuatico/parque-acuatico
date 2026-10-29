@@ -953,11 +953,11 @@ function tiraDias() {
       return `<button class="dia ${d.f === S.fecha ? 'on' : ''}" data-act="dia" data-v="${d.f}" aria-pressed="${d.f === S.fecha}">
         <small>${etiqueta}</small><b>${dt.getDate()}</b>${cerradoEn(d.f) ? '<i class="d-lock" title="Caja cerrada"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></i>' : ''}</button>`;
     }).join('')}
-    <label class="dia cal ${fuera ? 'on' : ''}" title="Elegir otra fecha">
-      <input type="date" id="fecha" value="${S.fecha}" max="${hoy()}" aria-label="Elegir otra fecha">
+    <button type="button" class="dia cal ${fuera ? 'on' : ''}" data-act="calendario" title="Elegir otra fecha">
+      <input type="date" id="fecha" value="${S.fecha}" max="${hoy()}" tabindex="-1" aria-hidden="true">
       <small>${fuera ? CORTO[fd.getDay()] + ' ' + fd.getDate() : 'Otro'}</small>
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-    </label>
+    </button>
   </div>`;
 }
 function cambiarDia(f) {
@@ -1399,6 +1399,12 @@ const ACT = {
   reabrir: reabrirCaja,
   'ir-hoy'() { cambiarDia(hoy()); },
   dia(v) { cambiarDia(v); },
+  calendario() {
+    // Abre el calendario del sistema (en computador, Chrome no lo abre con un clic normal sobre el campo)
+    const i = $('#fecha'); if (!i) return;
+    try { if (i.showPicker) { i.showPicker(); return; } } catch (e) { }
+    i.style.pointerEvents = 'auto'; i.focus(); i.click();
+  },
   compartir,
   ejemplo: cargarEjemplo,
   'probar-alerta'() {
