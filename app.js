@@ -37,7 +37,7 @@ const PRODUCTOS_DEF = [
   { id: 'calcetas', nombre: 'Calcetas', precio: 2000, aviso_bajo: 5 },
   { id: 'bolsa_telefono', nombre: 'Bolsa de teléfono', precio: 2000, aviso_bajo: 5 }
 ];
-const SOCIOS_PRUEBA = { 'Licán Ray': 2, 'Pucón': 5, 'Villarrica': 4 };
+const JUEGOS = ['arrastre', 'banano', 'sacachucha', 'extreme'];   // solo en Licán Ray
 
 const COLOR_HEX = {
   rojo: '#e53935', roja: '#e53935', azul: '#1e88e5', verde: '#43a047', amarillo: '#fdd835', amarilla: '#fdd835',
@@ -162,17 +162,47 @@ function normalizarEntrada(e) {
     color: rot ? '' : color, rot, gratis: !!e.gratis, nota: e.nota || ''
   };
 }
-function configPrueba(sede) {
+function configBase(sede) {
   return {
     sede, sedes: SEDES_DEF.slice(),
     colores_media: COLORES_MEDIA_DEF.slice(), medios_pago: ['Efectivo', 'Débito'],
-    socios_cantidad: SOCIOS_PRUEBA[sede] || 0,
-    entradas: ENTRADAS_DEF.map(e => Object.assign({}, e, PRECIOS_PRUEBA[e.id] && PRUEBA ? { precio: PRECIOS_PRUEBA[e.id], nota: 'precio de ejemplo' } : {})),
+    socios_cantidad: 0,
+    entradas: ENTRADAS_DEF.slice(),
     productos: PRODUCTOS_DEF.slice()
   };
 }
+function enSedes(lista, sede) {
+  const l = sinTildes(lista);
+  if (!l || l === 'todas' || l === 'todos') return true;
+  return String(lista).split(',').some(x => mismaSede(x, sede));
+}
+/* En la prueba, los ajustes (usuarios, lugares, precios…) se guardan en el teléfono. */
+function adminDemo() {
+  const d = LS.get('pa_admin', null);
+  if (d) return d;
+  return {
+    usuarios: USUARIOS_PRUEBA.map(u => ({ nombre: u.nombre, rol: u.rol, sede: u.sede, activo: true, tienePin: true })),
+    sedes: SEDES_DEF.map((n, i) => ({ nombre: n, activo: true, orden: i + 1 })),
+    entradas: ENTRADAS_DEF.map((e, i) => ({ id: e.id, nombre: e.nombre, precio: PRECIOS_PRUEBA[e.id] && PRUEBA ? PRECIOS_PRUEBA[e.id] : e.precio,
+      minutos: e.minutos, color: e.color, gratis: e.gratis, sedes: JUEGOS.indexOf(e.id) >= 0 ? 'Licán Ray' : 'todas', activo: true, orden: i + 1, nota: PRECIOS_PRUEBA[e.id] && PRUEBA ? 'precio de ejemplo' : '' })),
+    productos: PRODUCTOS_DEF.map((p, i) => ({ id: p.id, nombre: p.nombre, precio: p.precio, aviso_bajo: p.aviso_bajo, sedes: 'todas', activo: true, orden: i + 1 })),
+    colores_media: COLORES_MEDIA_DEF.slice(), medios_pago: ['Efectivo', 'Débito']
+  };
+}
+function sedesDemo() { return adminDemo().sedes.filter(x => x.activo).map(x => x.nombre); }
+function usuariosDemo() { return adminDemo().usuarios.filter(u => u.activo); }
+function configPrueba(sede) {
+  const a = adminDemo();
+  return {
+    sede, sedes: sedesDemo(),
+    colores_media: a.colores_media.slice(), medios_pago: a.medios_pago.slice(),
+    socios_cantidad: 0,
+    entradas: a.entradas.filter(e => e.activo && enSedes(e.sedes, sede)).map(e => ({ id: e.id, nombre: e.nombre, precio: e.precio, minutos: e.minutos, color: e.color, rot: !e.color, gratis: e.gratis, nota: e.nota })),
+    productos: a.productos.filter(p => p.activo && enSedes(p.sedes, sede)).map(p => ({ id: p.id, nombre: p.nombre, precio: p.precio, aviso_bajo: p.aviso_bajo }))
+  };
+}
 function normalizarConfig(c, sede) {
-  const base = configPrueba(sede || (c && c.sede) || SEDES_DEF[0]);
+  const base = configBase(sede || (c && c.sede) || SEDES_DEF[0]);
   const out = Object.assign({}, base, c || {});
   if (!Array.isArray(out.sedes) || !out.sedes.length) out.sedes = base.sedes;
   if (!Array.isArray(out.colores_media) || !out.colores_media.length) out.colores_media = base.colores_media;
@@ -204,6 +234,7 @@ const S = {
   iform: { producto: '', tipo: 'inicial', cantidad: '', nota: '' },
   cform: { efectivo: '', debito: '' },
   rep: null,
+  filtroPersona: '',
   sedeMenu: false,
   servidorViejo: false,
   syncState: DEMO ? 'demo' : 'idle', syncError: '', syncing: false,
@@ -748,7 +779,7 @@ function cerrarCaja() {
     productosVendidos: Object.keys(R.porProducto).map(k => R.porProducto[k].nombre + ' ×' + R.porProducto[k].cant).join(', '),
     pulserasEntregadas: textoPorColor(R),
     stockFinal: idsInventario().filter(id => st[id] && st[id].queda != null).map(id => nombreItem(id) + ': ' + st[id].queda).join(' · '),
-    reparto: R.porSocio != null ? 'Neto ÷ ' + R.socios + ' socios = ' + fmt(R.porSocio) : '',
+    reparto: '',
     efectivoContado: contado == null ? '' : contado, debitoMaquina: maquina == null ? '' : maquina,
     difEfectivo: contado == null ? '' : contado - R.efectivoEsperado, difDebito: maquina == null ? '' : maquina - R.debito,
     detalle: JSON.stringify({ porMedio: R.porMedio, porEntrada: R.porEntrada, porColor: R.porColor, porProducto: R.porProducto })
@@ -780,10 +811,11 @@ function textoResumen() {
   L.push('TOTAL: ' + fmt(R.recaudado));
   if (R.totalGastos) L.push('Gastos: −' + fmt(R.totalGastos) + ' (' + R.listaGastos.map(g => g.concepto).join(', ') + ')');
   L.push('Neto: ' + fmt(R.neto));
-  if (R.porSocio != null) L.push('Neto ÷ ' + R.socios + ' socios: ' + fmt(R.porSocio));
   L.push('Efectivo que debe haber en caja: ' + fmt(R.efectivoEsperado));
   if (S.cierre && S.cierre.efectivoContado !== '' && S.cierre.efectivoContado != null && diaCerrado())
     L.push('Efectivo contado: ' + fmt(S.cierre.efectivoContado) + ' (diferencia ' + fmt(S.cierre.difEfectivo) + ')');
+  const ps = Object.keys(R.porPersona);
+  if (ps.length) { L.push(''); ps.forEach(n => L.push(n + ': ' + R.porPersona[n].ventas + ' ventas, ' + fmt(R.porPersona[n].monto) + ' (efectivo ' + fmt(R.porPersona[n].efectivo) + ', débito ' + fmt(R.porPersona[n].debito) + ')')); }
   const pul = Object.keys(R.porColor).map(c => c + ' ' + R.porColor[c].cant + (st['pulsera:' + c] && st['pulsera:' + c].queda != null ? ' (quedan ' + st['pulsera:' + c].queda + ')' : ''));
   if (pul.length) { L.push(''); L.push('Pulseras: ' + pul.join(' · ')); }
   return L.join('\n');
@@ -976,9 +1008,9 @@ async function login() {
   if (!nombre) { err.textContent = 'Elige tu nombre'; return; }
   pedirPermisoNotif(); audioCtx();
   if (DEMO) {
-    const u = USUARIOS_PRUEBA.find(x => x.nombre === nombre) || USUARIOS_PRUEBA[0];
-    S.user = Object.assign({ pin: '' }, u);
-    S.sedes = SEDES_DEF.slice();
+    const u = usuariosDemo().find(x => x.nombre === nombre) || usuariosDemo()[0];
+    S.user = { nombre: u.nombre, rol: u.rol, sede: u.sede, pin: '' };
+    S.sedes = sedesDemo();
   } else {
     if (!pin) { err.textContent = 'Escribe tu PIN'; return; }
     err.textContent = 'Entrando…';
@@ -996,7 +1028,7 @@ async function login() {
   LS.set('pa_sede', S.sede);
   S.fecha = hoy();
   cargarConfig(); loadDay();
-  S.venta = nuevaVenta(); S.tab = 'vender'; S.rep = nuevoReporte();
+  S.venta = nuevaVenta(); S.tab = 'vender'; S.rep = nuevoReporte(); S.adm = nuevoAdm();
   const app = $('#app'); app.innerHTML = '';
   render(); sync(); revisarAlertas();
 }
@@ -1060,10 +1092,11 @@ function renderTab() {
   const main = $('#main'); if (!main || !S.user) return;
   if (!S.venta) S.venta = nuevaVenta();
   if (!S.rep) S.rep = nuevoReporte();
+  if (!S.adm) S.adm = nuevoAdm();
   if (S.tab === 'reportes' && !esAdmin()) S.tab = 'vender';
   const vista = S.tab === 'vender' ? vistaVender() : S.tab === 'grupos' ? vistaGrupos() : S.tab === 'inventario' ? vistaInventario()
-    : S.tab === 'caja' ? vistaCaja() : vistaReportes();
-  const html = (S.tab === 'reportes' ? '' : bannerServidor() + bannerCerrado()) + vista;
+    : S.tab === 'caja' ? vistaCaja() : S.tab === 'ajustes' ? vistaAjustes() : vistaReportes();
+  const html = (S.tab === 'reportes' || S.tab === 'ajustes' ? '' : bannerServidor() + bannerCerrado()) + vista;
   const id = vistaId();
   if (main.dataset.vista !== id) { main.innerHTML = html; main.dataset.vista = id; }
   else morph(main, html);
@@ -1105,7 +1138,7 @@ function bannerServidor() {
 }
 
 function vistaLogin() {
-  const lista = DEMO ? USUARIOS_PRUEBA.map(u => u.nombre) : S.usuarios;
+  const lista = DEMO ? usuariosDemo().map(u => u.nombre) : S.usuarios;
   const ops = lista.map(n => '<option>' + esc(n) + '</option>').join('');
   return `<div class="login">
     <div class="login-ola">
@@ -1169,7 +1202,7 @@ function renderHeader() {
   morph(h, `<div class="hdr-in">
       <div class="hdr-top">
         <div class="brand">${iconoOla(30)}<span>Parque Acuático</span></div>
-        <button class="user" data-act="logout" title="Cerrar sesión"><span class="avatar">${inicial(S.user.nombre)}</span><span>${esc(S.user.nombre)}</span></button>
+        <button class="user ${S.tab === 'ajustes' ? 'on' : ''}" data-act="ajustes" title="${esAdmin() ? 'Ajustes y usuarios' : 'Mi PIN y cerrar sesión'}"><span class="avatar">${inicial(S.user.nombre)}</span><span>${esc(S.user.nombre)}</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></button>
       </div>
       <div class="sede-fila">
         ${admin ? `<button class="sede-pill ${S.sedeMenu ? 'abierto' : ''}" data-act="sede-menu" aria-expanded="${S.sedeMenu}">${ICON.pin}<span>${esc(S.sede)}</span><i>▾</i></button>`
@@ -1197,7 +1230,7 @@ function actualizarNav() {
   const nav = $('#nav'); if (!nav) return;
   const ts = tabsVisibles().map(x => x[0]);
   nav.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === S.tab));
-  const ind = nav.querySelector('.ind'); if (ind) ind.style.transform = 'translateX(' + (Math.max(0, ts.indexOf(S.tab)) * 100) + '%)';
+  const ind = nav.querySelector('.ind'); if (ind) { ind.style.opacity = ts.indexOf(S.tab) < 0 ? '0' : '1'; if (ts.indexOf(S.tab) >= 0) ind.style.transform = 'translateX(' + (ts.indexOf(S.tab) * 100) + '%)'; }
 }
 
 function chips(field, opciones, valor, extra) {
@@ -1364,7 +1397,12 @@ function vistaGrupos() {
   if (esHoy) turnos.forEach(t => { const e = estadoTurno(t); if (e.cls === 'activo' || e.cls === 'pronto') agua.push(t); else if (e.cls === 'prox') prox.push(t); });
   agua.sort((a, b) => segSal(a) - segSal(b));
   const enAgua = agua.reduce((s, t) => s + t.cant, 0);
-  const vivas = ventas.filter(v => v.estado !== 'anulado'), anuladas = ventas.filter(v => v.estado === 'anulado');
+  const personas = Array.from(new Set(ventas.map(v => v.creadoPor).filter(Boolean)));
+  if (S.filtroPersona && personas.indexOf(S.filtroPersona) < 0) S.filtroPersona = '';
+  const fp = S.filtroPersona;
+  const deFiltro = v => !fp || v.creadoPor === fp || v.editadoPor === fp;
+  const vivas = ventas.filter(v => v.estado !== 'anulado' && deFiltro(v)), anuladas = ventas.filter(v => v.estado === 'anulado' && deFiltro(v));
+  const filtro = personas.length > 1 ? `<div class="chips filtro-p" data-key="filtro-p"><button type="button" class="chip ${!fp ? 'on' : ''}" data-act="fpersona" data-v="">Todas</button>${personas.map(n => `<button type="button" class="chip ${fp === n ? 'on' : ''}" data-act="fpersona" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : '';
   return `${probar}<section class="cifras" data-key="cifras">
       ${esHoy ? `<div class="c-agua"><b>${cnt(enAgua, 'n')}</b><small>${enAgua === 1 ? 'persona' : 'personas'} en el agua</small></div>` : ''}
       <div><b>${cnt(R.ventas, 'n')}</b><small>${R.ventas === 1 ? 'venta' : 'ventas'} · ${plural(R.pulseras, 'pulsera', 'pulseras')}</small></div>
@@ -1372,7 +1410,8 @@ function vistaGrupos() {
     </section>
     ${bloque('En el agua', agua.length, agua.map(tarjetaTurno).join(''), 'b-agua')}
     ${bloque('Por entrar', prox.length, prox.map(tarjetaTurno).join(''), 'b-prox')}
-    ${bloque('Ventas del día', vivas.length, vivas.map(filaVenta).join(''), 'b-ventas')}
+    ${personas.length > 1 ? `<section class="bloque" data-key="b-filtro"><h2 class="bloque-h">Ver ventas de</h2>${filtro}</section>` : ''}
+    ${bloque(fp ? 'Ventas de ' + esc(fp) : 'Ventas del día', vivas.length, vivas.map(filaVenta).join(''), 'b-ventas')}
     ${bloque('Anuladas', anuladas.length, anuladas.map(filaVenta).join(''), 'b-anul')}`;
 }
 
@@ -1454,6 +1493,26 @@ function vistaInventario() {
   <p class="pie">Para agregar productos o cambiar precios, usa las pestañas Productos y Entradas de la planilla.</p>`;
 }
 
+
+function tablaPersonas(pp, key) {
+  const ns = Object.keys(pp || {}).sort((a, b) => pp[b].monto - pp[a].monto);
+  if (!ns.length) return '';
+  return `<section class="card" data-key="${key}">
+    <h2 class="card-h">Quién registró qué</h2>
+    <p class="ayuda">Cada venta queda a nombre de quien la anotó. Si algo no cuadra, aquí se ve quién cobró cuánto y en qué.</p>
+    ${ns.map(n => {
+      const x = pp[n];
+      const extra = [x.devol ? 'devolvió ' + fmt(x.devol) : '', x.gastos ? 'gastos ' + fmt(x.gastos) : '', x.editadas ? plural(x.editadas, 'edición', 'ediciones') : '', x.anuladas ? plural(x.anuladas, 'anulación', 'anulaciones') : ''].filter(Boolean);
+      return `<div class="persona" data-key="pp-${esc(n)}">
+        <span class="avatar sm">${inicial(n)}</span>
+        <div class="pe-txt"><b>${esc(n)}</b><small>${plural(x.ventas, 'venta', 'ventas')} · ${plural(x.pulseras, 'pulsera', 'pulseras')}${x.gratis ? ' (' + x.gratis + ' gratis)' : ''}</small>
+          <small>Efectivo ${fmt(x.efectivo)} · Débito ${fmt(x.debito)}${x.otros ? ' · Otros ' + fmt(x.otros) : ''}</small>
+          ${extra.length ? `<small class="pe-extra">${esc(extra.join(' · '))}</small>` : ''}</div>
+        <b class="pe-monto">${fmt(x.monto)}</b>
+      </div>`;
+    }).join('')}
+  </section>`;
+}
 /* ---------- Caja ---------- */
 function difTexto(d) {
   if (d === 0) return '<span class="dif ok">Cuadra</span>';
@@ -1494,6 +1553,8 @@ function vistaCaja() {
     }).join('') + fila('Total', `${R.pulseras}`, 'tot', 'pk-tot') : '<p class="muted" data-key="sin-pul">Todavía no se entregan pulseras.</p>'}
   </section>
 
+  ${tablaPersonas(R.porPersona, 'personas')}
+
   <section class="card" data-key="gastos">
     <h2 class="card-h">Gastos</h2>
     ${R.listaGastos.length ? R.listaGastos.map(x => `<div class="fila gasto" data-key="x-${x.id}"><span>${esc(x.concepto)}<small>${x.pagadoDesde === 'Efectivo' ? 'Con efectivo de la caja' : 'Pagado aparte'}, anotó ${esc(x.creadoPor || '')}</small></span><b>−${fmt(x.monto)}</b>${cerrado ? '' : `<button class="x" data-act="anular-gasto" data-v="${x.id}" aria-label="Anular gasto">×</button>`}</div>`).join('') : '<p class="muted" data-key="sin-gastos">Sin gastos anotados.</p>'}
@@ -1512,7 +1573,7 @@ function vistaCaja() {
 
   <section class="card cuadre" data-key="cuadre">
     <h2 class="card-h">Cuadre de caja</h2>
-    <p class="frase">Neto del día <b>${cnt(R.neto)}</b>${R.porSocio != null ? `. Dividido en ${R.socios} socios: <b>${cnt(R.porSocio)}</b> cada uno` : ''}.</p>
+    <p class="frase">Neto del día <b>${cnt(R.neto)}</b>${R.totalGastos ? ' (total menos gastos)' : ''}.</p>
     <div class="cq">
       <div class="cq-fila" data-key="cq-ef">
         <div><span>Efectivo que debe haber</span><b>${cnt(R.efectivoEsperado)}</b><small>cobrado ${fmt(R.efectivo)}${R.devol ? ' − devoluciones ' + fmt(R.devol) : ''}${R.gastosCaja ? ' − gastos de caja ' + fmt(R.gastosCaja) : ''}</small></div>
@@ -1582,6 +1643,7 @@ function vistaReportes() {
     ${cols.length ? `<section class="card" data-key="r-cols"><h2 class="card-h">Pulseras por color</h2>
       <div class="r-cols">${cols.map(col => `<div class="r-col"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span><b>${T.porColor[col].cant}</b>${T.porColor[col].gratis ? `<small>${T.porColor[col].gratis} gratis</small>` : ''}</div>`).join('')}</div>
     </section>` : ''}
+    ${tablaPersonas(T.porPersona, 'r-personas')}
     <section class="card" data-key="r-cie"><h2 class="card-h">Cierres de caja</h2>
       ${d.cierres.length ? d.cierres.map(c => {
         const dif = c.difEfectivo === '' || c.difEfectivo == null ? null : +c.difEfectivo;
@@ -1605,11 +1667,337 @@ function vistaReportes() {
     ${res}`;
 }
 
+
+/* =========================================================
+   Ajustes: todo se administra desde la app (sin abrir la planilla)
+   ========================================================= */
+const MEDIOS_POSIBLES = ['Efectivo', 'Débito', 'Transferencia'];
+function nuevoAdm() { return { datos: null, cargando: false, error: '', edit: null, guardando: false, pin: { nuevo: '', repetir: '' }, colorNuevo: '', cfg: null }; }
+async function cargarAdmin() {
+  if (!esAdmin()) return;
+  const a = S.adm;
+  if (DEMO) { a.datos = adminDemo(); a.cfg = cfgDesde(a.datos); renderTab(); return; }
+  a.cargando = true; a.error = ''; renderTab();
+  try { const r = await api('admin'); a.datos = r.admin; a.cfg = cfgDesde(a.datos); }
+  catch (e) { a.error = e.message; }
+  a.cargando = false; renderTab();
+}
+function cfgDesde(d) {
+  return { colores_media: d.colores_media.slice(), medios_pago: d.medios_pago.slice(), cambiado: false };
+}
+const soloSi = c => c === undefined ? true : c;
+/* Las mismas reglas que el Apps Script, para la versión de prueba */
+function guardarAdminLocal(tipo, it, original) {
+  const d = JSON.parse(JSON.stringify(adminDemo()));
+  const sedes = d.sedes.map(x => x.nombre);
+  const idDesde = (nombre, ids) => { const b = sinTildes(nombre).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'item'; let id = b, n = 2; while (ids.indexOf(id) >= 0) id = b + '_' + (n++); return id; };
+  const textoSedes = v => { const t = String(v || '').trim(); if (!t || sinTildes(t) === 'todas') return 'todas'; const ok = t.split(',').map(x => sedes.find(sd => mismaSede(sd, x))).filter(Boolean); if (!ok.length) throw new Error('Elige al menos un lugar'); return ok.join(', '); };
+  if (tipo === 'usuario') {
+    const nombre = String(it.nombre || '').trim().replace(/\s+/g, ' ');
+    if (!nombre) throw new Error('Escribe el nombre');
+    const orig = original ? d.usuarios.find(u => u.nombre === original) : null;
+    if (d.usuarios.some(u => sinTildes(u.nombre) === sinTildes(nombre) && u !== orig)) throw new Error('Ya existe un usuario con ese nombre');
+    const rol = it.rol === 'admin' ? 'admin' : 'cajero', activo = it.activo !== false;
+    const sede = rol === 'admin' ? '' : (sedes.find(x => mismaSede(x, it.sede)) || '');
+    if (rol === 'cajero' && !sede) throw new Error('Elige el lugar donde trabaja');
+    if (orig && orig.nombre === S.user.nombre && (!activo || rol !== 'admin')) throw new Error('No puedes quitarte el rol de administrador ni desactivarte a ti mismo');
+    if (!d.usuarios.filter(u => u !== orig && u.activo && u.rol === 'admin').length && !(rol === 'admin' && activo)) throw new Error('Tiene que quedar al menos un administrador activo');
+    if (it.pin) { if (!/^\d{4,8}$/.test(it.pin)) throw new Error('El PIN debe tener entre 4 y 8 números'); }
+    else if (!orig) throw new Error('Ponle un PIN de 4 a 8 números');
+    const obj = { nombre, rol, sede, activo, tienePin: true };
+    if (orig) Object.assign(orig, obj); else d.usuarios.push(obj);
+  } else if (tipo === 'sede') {
+    const orig = original ? d.sedes.find(x => x.nombre === original) : null;
+    const nombre = orig ? orig.nombre : String(it.nombre || '').trim().replace(/\s+/g, ' ');
+    if (!nombre) throw new Error('Escribe el nombre del lugar');
+    if (!orig && d.sedes.some(x => mismaSede(x.nombre, nombre))) throw new Error('Ese lugar ya existe');
+    const activo = it.activo !== false;
+    if (!activo && !d.sedes.filter(x => x !== orig && x.activo).length) throw new Error('Tiene que quedar al menos un lugar activo');
+    if (orig) orig.activo = activo; else { d.sedes.push({ nombre, activo, orden: d.sedes.length + 1 }); }
+  } else if (tipo === 'entrada' || tipo === 'producto') {
+    const lista = tipo === 'entrada' ? d.entradas : d.productos;
+    const orig = original ? lista.find(x => x.id === original) : null;
+    const nombre = String(it.nombre || '').trim();
+    if (!nombre) throw new Error('Escribe el nombre');
+    const precio = Math.round(Number(it.precio));
+    if (!(precio >= 0)) throw new Error('El precio no es válido');
+    const obj = { id: orig ? orig.id : idDesde(nombre, lista.map(x => x.id)), nombre, precio, activo: it.activo !== false, sedes: textoSedes(it.sedes), orden: orig ? orig.orden : lista.length + 1 };
+    if (tipo === 'entrada') {
+      const minutos = Math.round(Number(it.minutos) || 0);
+      if (minutos < 0 || minutos > 720) throw new Error('Los minutos no son válidos');
+      Object.assign(obj, { minutos, color: String(it.color || '').trim(), gratis: !!it.gratis, nota: !it.gratis && !precio ? 'Falta precio' : '' });
+    } else obj.aviso_bajo = Math.max(0, Math.round(Number(it.aviso_bajo) || 0));
+    if (orig) Object.assign(orig, obj); else lista.push(obj);
+  } else if (tipo === 'config') {
+    if (it.colores_media) { const c = it.colores_media.filter((x, i, a) => a.findIndex(y => sinTildes(y) === sinTildes(x)) === i); if (c.length < 2) throw new Error('Deja al menos dos colores para rotar'); d.colores_media = c; }
+    if (it.medios_pago) { const m = MEDIOS_POSIBLES.filter(x => it.medios_pago.indexOf(x) >= 0); if (!m.length) throw new Error('Deja al menos un medio de pago'); d.medios_pago = m; }
+  }
+  LS.set('pa_admin', d);
+  return d;
+}
+async function guardarAdmin(tipo, item, original) {
+  const a = S.adm;
+  if (a.guardando) return;
+  a.guardando = true; renderTab();
+  try {
+    if (DEMO) a.datos = guardarAdminLocal(tipo, item, original);
+    else a.datos = (await api('guardarAdmin', { tipo, item, original }, 45000)).admin;
+    // Si me cambié el nombre a mí mismo, la sesión sigue con el nombre nuevo
+    if (tipo === 'usuario' && original && original === S.user.nombre && item.nombre && item.nombre.trim() !== original) {
+      S.user.nombre = item.nombre.trim(); if (item.pin) S.user.pin = item.pin; LS.set('pa_user', S.user);
+    } else if (tipo === 'usuario' && original === S.user.nombre && item.pin) { S.user.pin = item.pin; LS.set('pa_user', S.user); }
+    a.cfg = cfgDesde(a.datos);
+    a.edit = null;
+    toast('Guardado. Los teléfonos lo toman en la próxima sincronización.', 'ok');
+    refrescarConfig();
+  } catch (e) { toast(e.message, 'err'); }
+  a.guardando = false; renderTab(); renderHeader();
+}
+function refrescarConfig() {
+  if (DEMO) {
+    S.sedes = sedesDemo();
+    if (!S.sedes.some(x => mismaSede(x, S.sede))) S.sede = S.sedes[0];
+    cargarConfig(); S.venta = nuevaVenta();
+  } else sync();
+}
+async function cambiarMiPin() {
+  const p = S.adm.pin;
+  if (!/^\d{4,8}$/.test(p.nuevo)) return toast('El PIN debe tener entre 4 y 8 números', 'err');
+  if (p.nuevo !== p.repetir) return toast('Los dos PIN no coinciden', 'err');
+  soltarFoco();
+  try {
+    if (!DEMO) await api('cambiarPin', { pinNuevo: p.nuevo });
+    S.user.pin = p.nuevo; LS.set('pa_user', S.user);
+    S.adm.pin = { nuevo: '', repetir: '' };
+    toast(DEMO ? 'En la prueba el PIN no se usa, pero así se cambia' : 'PIN cambiado', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  renderTab();
+}
+
+function editarAdmin(tipo, original) {
+  const d = S.adm.datos; if (!d) return;
+  let item;
+  if (tipo === 'usuario') {
+    const u = original ? d.usuarios.find(x => x.nombre === original) : null;
+    item = u ? { nombre: u.nombre, rol: u.rol, sede: u.sede || (d.sedes[0] || {}).nombre, activo: u.activo, pin: '' }
+      : { nombre: '', rol: 'cajero', sede: S.sede, activo: true, pin: '' };
+  } else if (tipo === 'sede') {
+    const x = original ? d.sedes.find(y => y.nombre === original) : null;
+    item = x ? { nombre: x.nombre, activo: x.activo } : { nombre: '', activo: true };
+  } else if (tipo === 'entrada') {
+    const e = original ? d.entradas.find(y => y.id === original) : null;
+    item = e ? { nombre: e.nombre, precio: String(e.precio), minutos: String(e.minutos), color: e.color, gratis: e.gratis, sedes: e.sedes, activo: e.activo }
+      : { nombre: '', precio: '', minutos: '0', color: S.config.pulseras.find(c => !d.entradas.some(e2 => e2.color === c) && S.config.colores_media.indexOf(c) < 0) || '', gratis: false, sedes: 'todas', activo: true };
+  } else if (tipo === 'producto') {
+    const x = original ? d.productos.find(y => y.id === original) : null;
+    item = x ? { nombre: x.nombre, precio: String(x.precio), aviso_bajo: String(x.aviso_bajo), sedes: x.sedes, activo: x.activo }
+      : { nombre: '', precio: '', aviso_bajo: '5', sedes: 'todas', activo: true };
+  }
+  S.adm.edit = { tipo, original: original || null, item };
+  renderTab();
+  setTimeout(() => { const el = document.querySelector('.adm-form [data-afield]'); if (el && !original) el.focus(); const f = document.querySelector('.adm-form'); if (f && f.scrollIntoView) f.scrollIntoView({ block: 'center', behavior: REDUCE ? 'auto' : 'smooth' }); }, 30);
+}
+function guardarEdicion() {
+  const e = S.adm.edit; if (!e) return;
+  const it = Object.assign({}, e.item);
+  if (e.tipo === 'entrada' || e.tipo === 'producto') {
+    it.precio = enteroDe(it.precio); if (it.precio == null) return toast('Escribe el precio (0 si es gratis)', 'err');
+    if (e.tipo === 'entrada') { it.minutos = enteroDe(it.minutos) || 0; if (it.gratis) it.precio = 0; }
+    else it.aviso_bajo = enteroDe(it.aviso_bajo) || 0;
+  }
+  if (e.tipo === 'usuario') it.pin = String(it.pin || '').trim();
+  guardarAdmin(e.tipo, it, e.original);
+}
+function guardarCfg() {
+  const c = S.adm.cfg;
+  guardarAdmin('config', { colores_media: c.colores_media, medios_pago: c.medios_pago });
+}
+
+/* ---------- vista ---------- */
+function toggle(f, on, act, txtSi, txtNo) {
+  return `<button type="button" class="tgl ${on ? 'on' : ''}" data-act="${act || 'aset'}" data-f="${f}" data-v="${on ? '0' : '1'}" role="switch" aria-checked="${on}"><i></i><span>${on ? (txtSi || 'Activo') : (txtNo || 'Desactivado')}</span></button>`;
+}
+function sedesElegidas(v, todas) {
+  if (!v || sinTildes(v) === 'todas') return todas.slice();
+  return todas.filter(sd => String(v).split(',').some(x => mismaSede(x, sd)));
+}
+function formAdmin() {
+  const e = S.adm.edit, it = e.item, d = S.adm.datos;
+  const sedes = d.sedes.map(x => x.nombre);
+  const nuevo = !e.original;
+  const campo = (f, label, extra) => `<label class="lbl" for="af-${f}">${label}</label><input id="af-${f}" class="inp" data-afield="${f}" value="${esc(it[f] == null ? '' : it[f])}" autocomplete="off" ${extra || ''}>`;
+  const elegirSedes = () => {
+    const el = sedesElegidas(it.sedes, sedes);
+    return `<p class="sub-t">¿En qué lugares?</p><div class="chips">
+      <button type="button" class="chip ${el.length === sedes.length ? 'on' : ''}" data-act="asedes" data-v="*">Todos</button>
+      ${sedes.map(sd => `<button type="button" class="chip ${el.length !== sedes.length && el.indexOf(sd) >= 0 ? 'on' : ''}" data-act="asedes" data-v="${esc(sd)}">${esc(sd)}</button>`).join('')}</div>`;
+  };
+  let cuerpo = '', titulo = '';
+  if (e.tipo === 'usuario') {
+    titulo = nuevo ? 'Nuevo usuario' : 'Editar a ' + esc(e.original);
+    cuerpo = `${campo('nombre', 'Nombre', 'autocapitalize="words" maxlength="40"')}
+      ${campo('pin', nuevo ? 'PIN (4 a 8 números)' : 'PIN nuevo <span class="muted">(vacío = no cambia)</span>', 'inputmode="numeric" maxlength="8" type="password"')}
+      <p class="sub-t">Rol</p>
+      ${chips('rol', [['cajero', 'Trabajador'], ['admin', 'Administrador']], it.rol, 'aset')}
+      <p class="ayuda">${it.rol === 'admin' ? 'Ve los tres lugares, los reportes y estos ajustes, y puede reabrir cajas.' : 'Solo ve y registra en su lugar.'}</p>
+      ${it.rol === 'cajero' ? `<p class="sub-t">Lugar donde trabaja</p>${chips('sede', sedes.map(x => [x, esc(x)]), it.sede, 'aset')}` : ''}
+      ${nuevo ? '' : toggle('activo', it.activo, 'aset', 'Puede entrar', 'Sin acceso')}`;
+  } else if (e.tipo === 'sede') {
+    titulo = nuevo ? 'Nuevo lugar' : esc(e.original);
+    cuerpo = `${nuevo ? campo('nombre', 'Nombre del lugar', 'autocapitalize="words" maxlength="40"') + '<p class="ayuda">El nombre no se puede cambiar después, porque las cajas quedan guardadas con él.</p>' : ''}
+      ${nuevo ? '' : toggle('activo', it.activo, 'aset', 'Abierto', 'Cerrado (no aparece en la app)')}`;
+  } else if (e.tipo === 'entrada') {
+    titulo = nuevo ? 'Nueva entrada o juego' : 'Editar ' + esc(it.nombre || '');
+    const cols = S.config.pulseras.filter(c => S.config.colores_media.indexOf(c) < 0);
+    if (it.color && cols.indexOf(it.color) < 0) cols.push(it.color);
+    cuerpo = `${campo('nombre', 'Nombre', 'maxlength="40"')}
+      ${toggle('gratis', it.gratis, 'aset', 'Gratis (free pass, cortesía)', 'Se cobra')}
+      ${it.gratis ? '' : campo('precio', 'Precio', 'inputmode="numeric" placeholder="$0"')}
+      <p class="sub-t">Tiempo</p>
+      ${chips('minutos', [['0', 'Sin tiempo'], ['30', '30 min'], ['60', '1 hora']].concat(['0', '30', '60'].indexOf(String(it.minutos)) < 0 ? [[String(it.minutos), it.minutos + ' min']] : []), String(it.minutos), 'aset')}
+      <input class="inp corto" data-afield="minutos" value="${esc(it.minutos)}" inputmode="numeric" aria-label="Otros minutos">
+      <p class="ayuda">Con tiempo, la app cuenta los minutos y avisa cuando hay que llamarlos a salir.</p>
+      <p class="sub-t">Color de pulsera</p>
+      <div class="chips"><button type="button" class="chip ${!it.color ? 'on' : ''}" data-act="aset" data-f="color" data-v="">El del turno (rota)</button>
+        ${cols.map(c => `<button type="button" class="chip ${it.color === c ? 'on' : ''}" data-act="aset" data-f="color" data-v="${esc(c)}"><i class="chip-dot" style="background:${colorHex(c)}"></i>${esc(c)}</button>`).join('')}</div>
+      <label class="lbl" for="af-colorotro">Otro color</label>
+      <input id="af-colorotro" class="inp" data-afield="color" value="${esc(it.color && cols.indexOf(it.color) < 0 ? it.color : '')}" placeholder="Ej: Celeste flúor" autocomplete="off">
+      ${elegirSedes()}
+      ${nuevo ? '' : toggle('activo', it.activo, 'aset', 'Se vende', 'No se vende')}`;
+  } else if (e.tipo === 'producto') {
+    titulo = nuevo ? 'Nuevo producto' : 'Editar ' + esc(it.nombre || '');
+    cuerpo = `${campo('nombre', 'Nombre', 'maxlength="40"')}
+      ${campo('precio', 'Precio', 'inputmode="numeric" placeholder="$0"')}
+      ${campo('aviso_bajo', 'Avisar cuando queden', 'inputmode="numeric"')}
+      ${elegirSedes()}
+      ${nuevo ? '' : toggle('activo', it.activo, 'aset', 'Se vende', 'No se vende')}`;
+  }
+  return `<div class="adm-form" data-key="form-${e.tipo}-${esc(e.original || 'nuevo')}">
+    <h3>${titulo}</h3>${cuerpo}
+    <div class="adm-btns"><button class="btn" data-act="acancelar">Cancelar</button><button class="btn coral" data-act="aguardar" ${S.adm.guardando ? 'disabled' : ''}>${S.adm.guardando ? 'Guardando…' : 'Guardar'}</button></div>
+  </div>`;
+}
+function filaAdm(tipo, key, titulo, sub, extra, off) {
+  const e = S.adm.edit;
+  if (e && e.tipo === tipo && e.original === key) return formAdmin();
+  return `<button type="button" class="adm-fila ${off ? 'off' : ''}" data-key="af-${tipo}-${esc(key)}" data-act="aeditar" data-f="${tipo}" data-v="${esc(key)}">
+    ${extra || ''}<span><b>${titulo}</b><small>${sub}</small></span><i class="adm-ed">Editar</i></button>`;
+}
+function botonNuevo(tipo, txt) {
+  const e = S.adm.edit;
+  if (e && e.tipo === tipo && !e.original) return formAdmin();
+  return `<button type="button" class="btn adm-nuevo" data-key="nuevo-${tipo}" data-act="aeditar" data-f="${tipo}" data-v="">+ ${txt}</button>`;
+}
+function vistaAjustes() {
+  const a = S.adm;
+  const pin = `<section class="card" data-key="mi-pin">
+    <h2 class="card-h">Mi PIN</h2>
+    <p class="ayuda">Entras como <b>${esc(S.user.nombre)}</b>. Cambia tu PIN cuando quieras; nadie más necesita saberlo.</p>
+    <div class="row2">
+      <input class="inp" type="password" inputmode="numeric" maxlength="8" data-pfield="nuevo" value="${esc(a.pin.nuevo)}" placeholder="PIN nuevo" autocomplete="new-password">
+      <input class="inp" type="password" inputmode="numeric" maxlength="8" data-pfield="repetir" value="${esc(a.pin.repetir)}" placeholder="Repetir PIN" autocomplete="new-password">
+    </div>
+    <button class="btn" data-act="cambiar-pin">Cambiar mi PIN</button>
+  </section>
+  <button class="btn quitar" data-act="logout" data-key="salir">Cerrar sesión</button>`;
+  if (!esAdmin()) return pin;
+  if (a.cargando && !a.datos) return '<p class="muted" data-key="cargando">Cargando ajustes…</p>' + pin;
+  if (a.error && !a.datos) return `<p class="ayuda alerta" data-key="err">${esc(a.error)}</p><button class="btn" data-act="recargar-admin">Reintentar</button>` + pin;
+  const d = a.datos; if (!d) return pin;
+  const c = a.cfg;
+  const rotan = c.colores_media;
+  const conTiempo = e => e.minutos ? (e.minutos % 60 === 0 ? (e.minutos / 60) + ' h' : e.minutos + ' min') : 'sin tiempo';
+  const lugaresTxt = v => !v || sinTildes(v) === 'todas' ? 'todos los lugares' : v;
+  return `<section class="card" data-key="adm-usuarios">
+    <h2 class="card-h">Usuarios</h2>
+    <p class="ayuda">Cada persona entra con su nombre y PIN. A quien ya no trabaje, quítale el acceso (su nombre queda en las ventas que hizo).</p>
+    ${d.usuarios.map(u => filaAdm('usuario', u.nombre, esc(u.nombre) + (u.nombre === S.user.nombre ? ' <span class="muted">(tú)</span>' : ''),
+      (u.rol === 'admin' ? 'Administrador · todos los lugares' : 'Trabajador · ' + esc(u.sede || 'sin lugar')) + (u.activo ? '' : ' · <em>sin acceso</em>'),
+      `<span class="avatar sm">${inicial(u.nombre)}</span>`, !u.activo)).join('')}
+    ${botonNuevo('usuario', 'Agregar usuario')}
+  </section>
+
+  <section class="card" data-key="adm-entradas">
+    <h2 class="card-h">Entradas y juegos</h2>
+    <p class="ayuda">Un cambio de precio vale para las ventas nuevas; las ya hechas guardan el precio que se cobró.</p>
+    ${d.entradas.map(e => filaAdm('entrada', e.id, esc(e.nombre) + ' · ' + (e.gratis ? 'Gratis' : e.precio ? fmt(e.precio) : '<em>falta precio</em>'),
+      conTiempo(e) + ' · pulsera ' + esc(e.color ? e.color.toLowerCase() : 'del turno') + ' · ' + esc(lugaresTxt(e.sedes)) + (e.activo ? '' : ' · <em>no se vende</em>'),
+      `<span class="pulsera-vis mini" style="--c:${e.color ? colorHex(e.color) : 'conic-gradient(#43a047 0 25%,#1e88e5 0 50%,#e53935 0 75%,#fdd835 0)'}"></span>`, !e.activo)).join('')}
+    ${botonNuevo('entrada', 'Agregar entrada o juego')}
+  </section>
+
+  <section class="card" data-key="adm-productos">
+    <h2 class="card-h">Productos</h2>
+    ${d.productos.map(p => filaAdm('producto', p.id, esc(p.nombre) + ' · ' + fmt(p.precio), 'Aviso con ' + p.aviso_bajo + ' o menos · ' + esc(lugaresTxt(p.sedes)) + (p.activo ? '' : ' · <em>no se vende</em>'), '', !p.activo)).join('')}
+    ${botonNuevo('producto', 'Agregar producto')}
+  </section>
+
+  <section class="card" data-key="adm-lugares">
+    <h2 class="card-h">Lugares</h2>
+    ${d.sedes.map(x => filaAdm('sede', x.nombre, esc(x.nombre), x.activo ? 'Abierto' : '<em>Cerrado</em>', `<span class="adm-ic">${ICON.pin}</span>`, !x.activo)).join('')}
+    ${botonNuevo('sede', 'Agregar lugar')}
+  </section>
+
+  <section class="card" data-key="adm-cfg">
+    <h2 class="card-h">Pulseras del turno y medios de pago</h2>
+    <p class="sub-t">Colores que rotan en ½ hora, free pass y cortesía (en este orden)</p>
+    <div class="rotan">${rotan.map((col, i) => `<span class="rot-chip" data-key="rot-${esc(col)}"><i style="background:${colorHex(col)}"></i>${esc(col)}
+      ${i > 0 ? `<button type="button" data-act="rot-sube" data-v="${i}" aria-label="Mover antes">‹</button>` : ''}
+      <button type="button" data-act="rot-quitar" data-v="${i}" aria-label="Quitar ${esc(col)}">×</button></span>`).join('')}</div>
+    <div class="row2 rot-add"><input class="inp" data-cfg="colorNuevo" value="${esc(a.colorNuevo)}" placeholder="Agregar color (ej: Celeste)" autocomplete="off"><button class="btn" data-act="rot-agregar">Agregar</button></div>
+    <p class="sub-t">Medios de pago</p>
+    <div class="chips">${MEDIOS_POSIBLES.map(m => `<button type="button" class="chip ${c.medios_pago.indexOf(m) >= 0 ? 'on' : ''}" data-act="medio-tgl" data-v="${m}">${c.medios_pago.indexOf(m) >= 0 ? '✓ ' : ''}${m}</button>`).join('')}</div>
+    ${c.medios_pago.indexOf('Transferencia') >= 0 ? '<p class="ayuda alerta" data-key="aviso-transf">Ojo: con transferencia hay que revisar que la plata realmente llegó antes de entregar pulseras.</p>' : ''}
+    <button class="btn coral" data-act="guardar-cfg" ${c.cambiado && !a.guardando ? '' : 'disabled'}>${a.guardando ? 'Guardando…' : c.cambiado ? 'Guardar cambios' : 'Sin cambios'}</button>
+  </section>
+  ${pin}
+  <p class="pie">Todo cambio queda anotado con tu nombre en el historial.</p>`;
+}
+
 /* =========================================================
    Eventos
    ========================================================= */
 const ACT = {
-  login, logout, sync: () => DEMO ? toast('Modo de prueba: no hay planilla conectada') : sync(),
+  login, logout,
+  ajustes() {
+    if (S.tab === 'ajustes') return;
+    irA('ajustes', () => { if (S.editId) { S.editId = null; S.venta = nuevaVenta(); } S.adm = Object.assign(nuevoAdm(), { datos: S.adm && S.adm.datos, cfg: S.adm && S.adm.cfg }); });
+    renderHeader();
+    cargarAdmin();
+  },
+  'recargar-admin'() { cargarAdmin(); },
+  fpersona(v) { S.filtroPersona = v; renderTab(); },
+  aeditar(v, el) { if (S.adm.guardando) return; editarAdmin(el.dataset.f, v || null); },
+  acancelar() { S.adm.edit = null; renderTab(); },
+  aguardar: guardarEdicion,
+  aset(v, el) {
+    const it = S.adm.edit && S.adm.edit.item; if (!it) return;
+    const f = el.dataset.f;
+    it[f] = (f === 'activo' || f === 'gratis') ? v === '1' : v;
+    renderTab();
+  },
+  asedes(v) {
+    const it = S.adm.edit && S.adm.edit.item; if (!it) return;
+    const todas = S.adm.datos.sedes.map(x => x.nombre);
+    if (v === '*') { it.sedes = 'todas'; renderTab(); return; }
+    let el = sedesElegidas(it.sedes, todas);
+    if (el.length === todas.length) el = [v];
+    else if (el.indexOf(v) >= 0) el = el.filter(x => x !== v); else el.push(v);
+    it.sedes = !el.length || el.length === todas.length ? 'todas' : el.join(', ');
+    renderTab();
+  },
+  'rot-quitar'(v) { const c = S.adm.cfg; if (c.colores_media.length <= 2) return toast('Deja al menos dos colores', 'err'); c.colores_media.splice(+v, 1); c.cambiado = true; renderTab(); },
+  'rot-sube'(v) { const c = S.adm.cfg, i = +v; const x = c.colores_media[i]; c.colores_media[i] = c.colores_media[i - 1]; c.colores_media[i - 1] = x; c.cambiado = true; renderTab(); },
+  'rot-agregar'() {
+    const c = S.adm.cfg, n = String(S.adm.colorNuevo || '').trim().replace(/\s+/g, ' ');
+    if (!n) return toast('Escribe el color', 'err');
+    const nom = n.charAt(0).toUpperCase() + n.slice(1);
+    if (c.colores_media.some(x => sinTildes(x) === sinTildes(nom))) return toast('Ese color ya está', 'err');
+    c.colores_media.push(nom); c.cambiado = true; S.adm.colorNuevo = ''; renderTab();
+  },
+  'medio-tgl'(v) { const c = S.adm.cfg; const i = c.medios_pago.indexOf(v); if (i >= 0) { if (c.medios_pago.length === 1) return toast('Deja al menos un medio de pago', 'err'); c.medios_pago.splice(i, 1); } else c.medios_pago = MEDIOS_POSIBLES.filter(m => m === v || c.medios_pago.indexOf(m) >= 0); c.cambiado = true; renderTab(); },
+  'guardar-cfg': guardarCfg,
+  'cambiar-pin': cambiarMiPin, sync: () => DEMO ? toast('Modo de prueba: no hay planilla conectada') : sync(),
   tab(v) {
     if (v === S.tab && !S.editId) return;
     irA(v, () => { if (S.editId) { S.editId = null; S.venta = nuevaVenta(); } });
@@ -1711,6 +2099,13 @@ document.addEventListener('input', e => {
   if (t.dataset.ifield) S.iform[t.dataset.ifield] = t.value;
   if (t.dataset.cfield) { S.cform[t.dataset.cfield] = t.value; renderTab(); }
   if (t.dataset.rfield) { S.rep[t.dataset.rfield] = t.value; S.rep.rapido = ''; }
+  if (t.dataset.afield && S.adm && S.adm.edit) {
+    S.adm.edit.item[t.dataset.afield] = t.value;
+    if (t.dataset.afield === 'minutos' || t.dataset.afield === 'color') renderTab();
+  }
+  if (t.dataset.pfield && S.adm) S.adm.pin[t.dataset.pfield] = t.value;
+  if (t.dataset.cfg && S.adm) S.adm[t.dataset.cfg] = t.value;
+
 });
 document.addEventListener('change', e => {
   if (e.target.id === 'fecha' && e.target.value) cambiarDia(e.target.value > hoy() ? hoy() : e.target.value);
@@ -1719,6 +2114,7 @@ document.addEventListener('change', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'lp') login();
   if (e.key === 'Enter' && e.target.id === 'f-nombre') e.target.blur();
+  if (e.key === 'Enter' && e.target.dataset && e.target.dataset.cfg === 'colorNuevo') ACT['rot-agregar']();
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.ifield) guardarMovimiento();
 });
 window.addEventListener('online', sync);
@@ -1750,11 +2146,12 @@ if (PRUEBA) {
   } else sembrarPrueba(true);   // mismo día: solo se rearman los grupos en el agua según la hora actual
 }
 if (S.user && !S.user.rol && !DEMO) { S.user = null; LS.del('pa_user'); }  // sesión de una versión anterior: volver a entrar
-if (S.user && DEMO) { const u = USUARIOS_PRUEBA.find(x => x.nombre === S.user.nombre); if (u) S.user = Object.assign({ pin: '' }, u); else S.user = null; }
+if (DEMO) S.sedes = sedesDemo();
+if (S.user && DEMO) { const u = usuariosDemo().find(x => x.nombre === S.user.nombre); if (u) S.user = { nombre: u.nombre, rol: u.rol, sede: u.sede, pin: '' }; else S.user = null; }
 S.sede = sedeInicial();
 cargarConfig();
 loadDay();
-if (S.user) { S.venta = nuevaVenta(); S.rep = nuevoReporte(); }
+if (S.user) { S.venta = nuevaVenta(); S.rep = nuevoReporte(); S.adm = nuevoAdm(); }
 render();
 if (S.user) { sync(); revisarAlertas(); pantallaEncendida(); } else cargarUsuarios();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

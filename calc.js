@@ -92,8 +92,24 @@
     const r = {
       ventas: vivos.length, pulseras: 0, gratis: 0, porEntrada: {}, porColor: {}, porProducto: {},
       porMedio: {}, bruto: 0, devol: 0, ventaEntradas: 0, ventaProductos: 0, unidades: 0,
-      totalGastos: 0, gastosCaja: 0, listaGastos: gas
+      totalGastos: 0, gastosCaja: 0, listaGastos: gas, porPersona: {}
     };
+    // Quién hizo qué: cada venta cuenta para quien la registró; anulaciones y ediciones para quien las hizo.
+    const persona = n => {
+      n = String(n || '').trim() || 'Sin nombre';
+      if (!r.porPersona[n]) r.porPersona[n] = { ventas: 0, monto: 0, efectivo: 0, debito: 0, otros: 0, pulseras: 0, gratis: 0, devol: 0, gastos: 0, anuladas: 0, editadas: 0 };
+      return r.porPersona[n];
+    };
+    (registros || []).forEach(v => {
+      if (v.estado === 'anulado') { if (v.editadoPor) persona(v.editadoPor).anuladas++; return; }
+      const pp = persona(v.creadoPor), t = +v.total || 0;
+      pp.ventas++; pp.monto += t - (+v.devolucion || 0);
+      if ((v.medio || 'Efectivo') === 'Efectivo') pp.efectivo += t; else if (v.medio === 'Débito') pp.debito += t; else pp.otros += t;
+      pp.devol += +v.devolucion || 0;
+      lineasDe(v).forEach(l => { pp.pulseras += +l.cant; if (l.gratis) pp.gratis += +l.cant; });
+      if (v.editadoPor) persona(v.editadoPor).editadas++;
+    });
+    gas.forEach(g => { persona(g.creadoPor).gastos += +g.monto || 0; });
     vivos.forEach(v => {
       const t = +v.total || 0;
       r.bruto += t;

@@ -43,12 +43,9 @@ const COLORES_MEDIA = 'Verde,Azul,Roja,Amarilla,Naranja,Morada,Rosada,Blanca';
 // [clave, valor, descripción, sede (vacío = todos los lugares)]
 const CONFIG_INICIAL = [
   ['colores_media', COLORES_MEDIA, 'Colores de pulsera para ½ hora, Free pass y Cortesía, separados por coma. La app los rota por turno', ''],
-  ['medios_pago', 'Efectivo,Débito', 'Medios de pago que se aceptan, separados por coma', ''],
-  ['socios_cantidad', '2', 'Cantidad de socios para dividir el neto del día (vacío = no mostrar la división)', 'Licán Ray'],
-  ['socios_cantidad', '5', 'Cantidad de socios para dividir el neto del día (vacío = no mostrar la división)', 'Pucón'],
-  ['socios_cantidad', '4', 'Cantidad de socios para dividir el neto del día (vacío = no mostrar la división)', 'Villarrica']
+  ['medios_pago', 'Efectivo,Débito', 'Medios de pago que se aceptan, separados por coma', '']
 ];
-const CONFIG_OBSOLETA = ['precio_media', 'precio_hora', 'color_hora', 'color_media', 'socios', 'cuenta_debito', 'precio_calceta'];
+const CONFIG_OBSOLETA = ['precio_media', 'precio_hora', 'color_hora', 'color_media', 'socios', 'cuenta_debito', 'precio_calceta', 'socios_cantidad'];
 
 // Entradas y juegos. color: un color fijo, o "rotativo" (cambia por turno). minutos 0 = sin tiempo ni alerta.
 const ENTRADAS_INICIALES = [
@@ -57,10 +54,10 @@ const ENTRADAS_INICIALES = [
   { id: 'full', nombre: 'Full day', precio: 30000, minutos: 0, color: 'Plateada', gratis: 'no', orden: 3, nota: 'Color de pulsera por confirmar' },
   { id: 'freepass', nombre: 'Free pass', precio: 0, minutos: 30, color: 'rotativo', gratis: 'si', orden: 4, nota: 'Entra con la pulsera del turno, no suma dinero' },
   { id: 'cortesia', nombre: 'Cortesía', precio: 0, minutos: 30, color: 'rotativo', gratis: 'si', orden: 5, nota: 'Entra con la pulsera del turno, no suma dinero' },
-  { id: 'arrastre', nombre: 'Arrastre', precio: 0, minutos: 0, color: 'Verde flúor', gratis: 'no', orden: 6, nota: 'Precio por confirmar' },
-  { id: 'banano', nombre: 'Banano', precio: 0, minutos: 0, color: 'Amarilla flúor', gratis: 'no', orden: 7, nota: 'Precio por confirmar' },
-  { id: 'sacachucha', nombre: 'Sacachucha', precio: 0, minutos: 0, color: 'Rosada flúor', gratis: 'no', orden: 8, nota: 'Precio por confirmar' },
-  { id: 'extreme', nombre: 'Extreme', precio: 0, minutos: 0, color: 'Naranja flúor', gratis: 'no', orden: 9, nota: 'Precio por confirmar' }
+  { id: 'arrastre', nombre: 'Arrastre', precio: 0, minutos: 0, color: 'Verde flúor', gratis: 'no', sedes: 'Licán Ray', orden: 6, nota: 'Precio por confirmar' },
+  { id: 'banano', nombre: 'Banano', precio: 0, minutos: 0, color: 'Amarilla flúor', gratis: 'no', sedes: 'Licán Ray', orden: 7, nota: 'Precio por confirmar' },
+  { id: 'sacachucha', nombre: 'Sacachucha', precio: 0, minutos: 0, color: 'Rosada flúor', gratis: 'no', sedes: 'Licán Ray', orden: 8, nota: 'Precio por confirmar' },
+  { id: 'extreme', nombre: 'Extreme', precio: 0, minutos: 0, color: 'Naranja flúor', gratis: 'no', sedes: 'Licán Ray', orden: 9, nota: 'Precio por confirmar' }
 ];
 
 /* ---------------- instalación y migración ---------------- */
@@ -72,7 +69,24 @@ function setup() {
     if (s && s.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(s);
   });
   carpetaCajas();
-  SpreadsheetApp.getActive().toast('Listo. Revisa Usuarios (PIN y lugar), Entradas, Productos y Config.');
+  protegerPlanilla();
+  SpreadsheetApp.getActive().toast('Listo. Ahora todo se administra desde la app (Ajustes).');
+}
+
+/** Bloquea las pestañas para que solo la cuenta dueña pueda editarlas a mano. La app escribe igual, porque el script corre como la dueña. */
+function protegerPlanilla() {
+  let yo;
+  try { yo = Session.getEffectiveUser(); } catch (e) { return; }
+  SpreadsheetApp.getActive().getSheets().forEach(sh => {
+    try {
+      const ya = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
+      const p = ya || sh.protect();
+      p.setDescription('Se administra desde la app Parque Acuático (Ajustes)');
+      p.addEditor(yo);
+      p.removeEditors(p.getEditors().filter(u => u.getEmail() !== yo.getEmail()));
+      if (p.canDomainEdit()) p.setDomainEdit(false);
+    } catch (e) { /* sin permiso para proteger: se sigue igual */ }
+  });
 }
 
 /** Crea pestañas y columnas que falten y migra datos antiguos, sin borrar nada. */
@@ -120,7 +134,7 @@ function asegurarEsquema(forzar) {
 
   // Entradas y juegos
   const shE = ss.getSheetByName('Entradas');
-  if (shE.getLastRow() < 2) ENTRADAS_INICIALES.forEach((e, i) => escribirFila(shE, HOJAS.Entradas, i + 2, Object.assign({ sedes: 'todas', activo: 'si' }, e)));
+  if (shE.getLastRow() < 2) ENTRADAS_INICIALES.forEach((e, i) => escribirFila(shE, HOJAS.Entradas, i + 2, Object.assign({ sedes: 'todas', activo: 'si' }, e)));  // los juegos traen sedes: 'Licán Ray'
 
   // Productos: calcetas y bolsa de teléfono (la bolsa se agrega una sola vez)
   const prod = ss.getSheetByName('Productos');
@@ -210,6 +224,15 @@ function manejar(req) {
     const r = aplicarOps(req.ops || [], user, sedes);
     return { ok: true, applied: r.hechos, rechazados: r.rechazados };
   }
+  if (a === 'cambiarPin') {
+    cambiarPin(user, req.pinNuevo);
+    return { ok: true };
+  }
+  if (a === 'admin' || a === 'guardarAdmin') {
+    if (!user.admin) throw new Error('Solo los administradores pueden cambiar la configuración');
+    if (a === 'guardarAdmin') guardarAdmin(user, req.tipo, req.item || {}, req.original);
+    return Object.assign({ ok: true }, datosAdmin());
+  }
   if (a === 'reporte') {
     if (!user.admin) throw new Error('Solo los administradores pueden ver los reportes');
     return Object.assign({ ok: true }, reporte(String(req.desde), String(req.hasta), req.sede || '*', sedes));
@@ -291,7 +314,7 @@ function leerConfig(sede, sedes) {
     sede, sedes: sedes || leerSedes(),
     colores_media: colores,
     medios_pago: lista('medios_pago').length ? lista('medios_pago') : ['Efectivo', 'Débito'],
-    socios_cantidad: Number(String(c.socios_cantidad || '').replace(/[^\d]/g, '')) || 0,
+    socios_cantidad: 0,
     entradas, productos: leerProductos(sede, false), pulseras
   };
 }
@@ -431,6 +454,177 @@ function registrarHistorial(usuario, accion, id, detalle) {
   escribirFila(sh, HOJAS.Historial, fila, { fechaHora: ahora(), usuario, accion, id, detalle });
 }
 
+/* ---------------- administración desde la app ---------------- */
+const MEDIOS_POSIBLES = ['Efectivo', 'Débito', 'Transferencia'];
+const siNo = v => (v === true || sinTildes(v) === 'si') ? 'si' : 'no';
+const activoDe = v => String(v == null || v === '' ? 'si' : v).trim().toLowerCase() !== 'no';
+function idDesde(nombre, existentes) {
+  let base = sinTildes(nombre).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'item';
+  let id = base, n = 2;
+  while (existentes.indexOf(id) >= 0) id = base + '_' + (n++);
+  return id;
+}
+/** Busca la fila cuyo campo "clave" coincide (sin importar tildes ni mayúsculas) y la reemplaza; si no está, la agrega. */
+function upsertFila(hoja, coincide, obj) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(hoja);
+  const h = HOJAS[hoja];
+  const filas = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+  let fila = -1, prev = null;
+  for (let i = 0; i < filas.length; i++) {
+    const o = aObjeto(h, filas[i]);
+    if (coincide(o)) { fila = i + 2; prev = o; break; }
+  }
+  const nuevo = Object.assign({}, prev || {}, obj);
+  escribirFila(sh, h, fila > 0 ? fila : Math.max(sh.getLastRow(), 1) + 1, nuevo);
+  return prev;
+}
+function datosAdmin() {
+  const cfgFilas = leer('Config');
+  const valor = (k, sede) => {
+    const r = cfgFilas.filter(x => String(x.clave).trim() === k && (sede ? mismaSede(x.sede, sede) : !String(x.sede || '').trim()))[0];
+    return r ? String(r.valor) : '';
+  };
+  const lista = v => String(v || '').split(',').map(x => x.trim()).filter(String);
+  const sedes = leer('Sedes').filter(x => String(x.nombre).trim())
+    .sort((a, b) => (Number(a.orden) || 99) - (Number(b.orden) || 99))
+    .map(x => ({ nombre: String(x.nombre).trim(), activo: activoDe(x.activo), orden: Number(x.orden) || 0 }));
+  return {
+    admin: {
+      usuarios: leer('Usuarios').filter(u => String(u.nombre).trim()).map(u => ({
+        nombre: String(u.nombre).trim(), rol: String(u.rol || 'cajero').trim().toLowerCase() === 'admin' ? 'admin' : 'cajero',
+        sede: String(u.sede || '').trim(), activo: activoDe(u.activo), tienePin: String(u.pin || '').trim() !== ''
+      })),
+      sedes,
+      entradas: leer('Entradas').filter(e => String(e.id).trim())
+        .sort((a, b) => (Number(a.orden) || 99) - (Number(b.orden) || 99))
+        .map(e => {
+          const color = String(e.color || '').trim();
+          return {
+            id: String(e.id).trim(), nombre: String(e.nombre || e.id).trim(), precio: Number(e.precio) || 0, minutos: Number(e.minutos) || 0,
+            color: !color || sinTildes(color) === 'rotativo' ? '' : color, gratis: sinTildes(e.gratis) === 'si',
+            sedes: String(e.sedes || 'todas').trim() || 'todas', activo: activoDe(e.activo), orden: Number(e.orden) || 0, nota: String(e.nota || '')
+          };
+        }),
+      productos: leer('Productos').filter(x => String(x.id).trim())
+        .sort((a, b) => (Number(a.orden) || 99) - (Number(b.orden) || 99))
+        .map(x => ({
+          id: String(x.id).trim(), nombre: String(x.nombre || x.id).trim(), precio: Number(x.precio) || 0, aviso_bajo: Number(x.aviso_bajo) || 0,
+          sedes: String(x.sedes || 'todas').trim() || 'todas', activo: activoDe(x.activo), orden: Number(x.orden) || 0
+        })),
+      colores_media: lista(valor('colores_media')).length ? lista(valor('colores_media')) : COLORES_MEDIA.split(','),
+      medios_pago: lista(valor('medios_pago')).length ? lista(valor('medios_pago')) : ['Efectivo', 'Débito']
+    }
+  };
+}
+function validarPin(pin) {
+  const p = String(pin == null ? '' : pin).trim();
+  if (!/^\d{4,8}$/.test(p)) throw new Error('El PIN debe tener entre 4 y 8 números');
+  return p;
+}
+function cambiarPin(user, pinNuevo) {
+  const p = validarPin(pinNuevo);
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    upsertFila('Usuarios', o => String(o.nombre).trim() === user.nombre, { pin: p });
+    registrarHistorial(user.nombre, 'cambiar su PIN', user.nombre, '');
+  } finally { lock.releaseLock(); }
+}
+function textoSedes(v, sedesValidas) {
+  if (Array.isArray(v)) v = v.join(', ');
+  const t = String(v || '').trim();
+  if (!t || sinTildes(t) === 'todas' || sinTildes(t) === 'todos') return 'todas';
+  const ok = t.split(',').map(x => x.trim()).filter(String).map(x => sedesValidas.filter(s => mismaSede(s, x))[0]).filter(Boolean);
+  if (!ok.length) throw new Error('Elige al menos un lugar');
+  return ok.join(', ');
+}
+function guardarAdmin(user, tipo, it, original) {
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    const todasSedes = leer('Sedes').map(x => String(x.nombre).trim()).filter(String);
+    let detalle = '', id = '';
+    if (tipo === 'usuario') {
+      const nombre = String(it.nombre || '').trim().replace(/\s+/g, ' ');
+      if (!nombre) throw new Error('Escribe el nombre');
+      if (nombre.length > 40) throw new Error('El nombre es muy largo');
+      const usuarios = leer('Usuarios').filter(u => String(u.nombre).trim());
+      const orig = original ? usuarios.filter(u => String(u.nombre).trim() === String(original).trim())[0] : null;
+      if (original && !orig) throw new Error('No se encontró ese usuario');
+      if (usuarios.some(u => sinTildes(u.nombre) === sinTildes(nombre) && u !== orig)) throw new Error('Ya existe un usuario con ese nombre');
+      const rol = it.rol === 'admin' ? 'admin' : 'cajero';
+      const activo = it.activo !== false;
+      const sede = rol === 'admin' ? '' : (todasSedes.filter(s => mismaSede(s, it.sede))[0] || '');
+      if (rol === 'cajero' && !sede) throw new Error('Elige el lugar donde trabaja');
+      const esYo = orig && String(orig.nombre).trim() === user.nombre;
+      if (esYo && (!activo || rol !== 'admin')) throw new Error('No puedes quitarte el rol de administrador ni desactivarte a ti mismo');
+      const quedanAdmins = usuarios.filter(u => u !== orig && activoDe(u.activo) && String(u.rol).trim().toLowerCase() === 'admin').length + (rol === 'admin' && activo ? 1 : 0);
+      if (!quedanAdmins) throw new Error('Tiene que quedar al menos un administrador activo');
+      const obj = { nombre, rol, sede, activo: activo ? 'si' : 'no' };
+      if (it.pin != null && String(it.pin).trim() !== '') obj.pin = validarPin(it.pin);
+      else if (!orig) throw new Error('Ponle un PIN de 4 a 8 números');
+      upsertFila('Usuarios', o => orig ? String(o.nombre).trim() === String(orig.nombre).trim() : false, obj);
+      id = nombre;
+      detalle = (orig ? (orig.nombre !== nombre ? 'renombrado desde ' + orig.nombre + '; ' : '') : 'nuevo; ') + rol + (sede ? ' en ' + sede : '') + (activo ? '' : '; desactivado') + (obj.pin ? '; PIN cambiado' : '');
+    } else if (tipo === 'sede') {
+      const sedes = leer('Sedes').filter(x => String(x.nombre).trim());
+      const orig = original ? sedes.filter(x => String(x.nombre).trim() === String(original).trim())[0] : null;
+      const nombre = orig ? String(orig.nombre).trim() : String(it.nombre || '').trim().replace(/\s+/g, ' ');
+      if (!nombre) throw new Error('Escribe el nombre del lugar');
+      if (!orig && sedes.some(x => mismaSede(x.nombre, nombre))) throw new Error('Ese lugar ya existe');
+      const activo = it.activo !== false;
+      if (!activo && sedes.filter(x => x !== orig && activoDe(x.activo)).length === 0) throw new Error('Tiene que quedar al menos un lugar activo');
+      const orden = it.orden != null && it.orden !== '' ? Number(it.orden) || 0 : (orig ? Number(orig.orden) || 0 : sedes.length + 1);
+      upsertFila('Sedes', o => mismaSede(o.nombre, nombre), { nombre, activo: activo ? 'si' : 'no', orden });
+      id = nombre; detalle = (orig ? '' : 'nuevo; ') + (activo ? 'activo' : 'desactivado');
+    } else if (tipo === 'entrada' || tipo === 'producto') {
+      const hoja = tipo === 'entrada' ? 'Entradas' : 'Productos';
+      const filas = leer(hoja).filter(x => String(x.id).trim());
+      const orig = original ? filas.filter(x => String(x.id).trim() === String(original).trim())[0] : null;
+      if (original && !orig) throw new Error('No se encontró');
+      const nombre = String(it.nombre || '').trim();
+      if (!nombre) throw new Error('Escribe el nombre');
+      const precio = Math.round(Number(it.precio));
+      if (!(precio >= 0)) throw new Error('El precio no es válido');
+      id = orig ? String(orig.id).trim() : idDesde(nombre, filas.map(x => String(x.id).trim()));
+      const obj = {
+        id, nombre, precio, activo: it.activo === false ? 'no' : 'si', sedes: textoSedes(it.sedes, todasSedes),
+        orden: it.orden != null && it.orden !== '' ? Number(it.orden) || 0 : (orig ? Number(orig.orden) || 0 : filas.length + 1)
+      };
+      if (tipo === 'entrada') {
+        const minutos = Math.round(Number(it.minutos) || 0);
+        if (minutos < 0 || minutos > 720) throw new Error('Los minutos no son válidos');
+        const gratis = !!it.gratis;
+        if (!gratis && precio === 0 && it.activo !== false) obj.nota = 'Falta precio';
+        else if (orig && /precio por confirmar|falta precio/i.test(String(orig.nota || ''))) obj.nota = '';
+        Object.assign(obj, { minutos, color: String(it.color || '').trim() || 'rotativo', gratis: gratis ? 'si' : 'no' });
+        if (it.nota != null) obj.nota = String(it.nota).slice(0, 200);
+      } else {
+        obj.aviso_bajo = Math.max(0, Math.round(Number(it.aviso_bajo) || 0));
+      }
+      upsertFila(hoja, o => String(o.id).trim() === id, obj);
+      detalle = (orig ? '' : 'nuevo; ') + nombre + ' ' + precio + (obj.activo === 'no' ? '; desactivado' : '');
+    } else if (tipo === 'config') {
+      const cfgUp = (clave, sede, valor, desc) => upsertFila('Config',
+        o => String(o.clave).trim() === clave && (sede ? mismaSede(o.sede, sede) : !String(o.sede || '').trim()),
+        { clave, valor: String(valor), descripcion: desc, sede: sede || '' });
+      if (it.colores_media != null) {
+        const cols = (Array.isArray(it.colores_media) ? it.colores_media : String(it.colores_media).split(','))
+          .map(x => String(x).trim()).filter(String).filter((x, i, a) => a.findIndex(y => sinTildes(y) === sinTildes(x)) === i);
+        if (cols.length < 2) throw new Error('Deja al menos dos colores para rotar');
+        cfgUp('colores_media', '', cols.join(','), 'Colores de pulsera que rotan por turno (½ hora, Free pass y Cortesía)');
+        detalle += 'colores: ' + cols.join(', ') + '. ';
+      }
+      if (it.medios_pago != null) {
+        const ms = MEDIOS_POSIBLES.filter(m => (it.medios_pago || []).some(x => sinTildes(x) === sinTildes(m)));
+        if (!ms.length) throw new Error('Deja al menos un medio de pago');
+        cfgUp('medios_pago', '', ms.join(','), 'Medios de pago que se aceptan');
+        detalle += 'medios: ' + ms.join(', ') + '. ';
+      }
+      id = 'config';
+    } else throw new Error('Tipo desconocido');
+    registrarHistorial(user.nombre, 'ajustes: ' + tipo, id, detalle.trim());
+  } finally { lock.releaseLock(); }
+}
+
 /* ---------------- reportes (administradores) ---------------- */
 function reporte(desde, hasta, sedePedida, sedes) {
   const enRango = x => x.fecha >= desde && x.fecha <= hasta;
@@ -541,7 +735,6 @@ function archivoDelDia(cierre) {
   if (R.devol) { f = add(['Devoluciones (en efectivo)', -R.devol]); dinero(f, 2); }
   f = add(['Gastos', -R.totalGastos]); dinero(f, 2);
   f = add(['Neto del día', R.neto], 'fuerte'); dinero(f, 2);
-  if (R.porSocio != null) { f = add(['Neto ÷ ' + R.socios + ' socios', Math.round(R.porSocio)]); dinero(f, 2); }
   add([]);
 
   add(['Cuadre de caja'], 'seccion');
@@ -581,6 +774,16 @@ function archivoDelDia(cierre) {
     f = add([p.nombre, v.cant, v.monto, s.inicio == null ? 'Sin conteo' : s.inicio, s.entradas || 0, s.queda == null ? 'Sin conteo' : s.queda]);
     dinero(f, 3);
   });
+  add([]);
+
+  add(['Quién registró qué'], 'seccion');
+  add(['Persona', 'Ventas', 'Efectivo', 'Débito', 'Total cobrado', 'Anuló / editó'], 'cabecera');
+  Object.keys(R.porPersona).forEach(n => {
+    const x = R.porPersona[n];
+    f = add([n, x.ventas, x.efectivo, x.debito, x.monto, (x.anuladas || x.editadas) ? x.anuladas + ' / ' + x.editadas : '']);
+    dinero(f, 3, 1, 3);
+  });
+  add(['Cerró la caja: ' + cierre.cerradoPor], 'nota');
   add([]);
 
   add(['Gastos'], 'seccion');
@@ -768,8 +971,24 @@ function ahora() {
     const r = {
       ventas: vivos.length, pulseras: 0, gratis: 0, porEntrada: {}, porColor: {}, porProducto: {},
       porMedio: {}, bruto: 0, devol: 0, ventaEntradas: 0, ventaProductos: 0, unidades: 0,
-      totalGastos: 0, gastosCaja: 0, listaGastos: gas
+      totalGastos: 0, gastosCaja: 0, listaGastos: gas, porPersona: {}
     };
+    // Quién hizo qué: cada venta cuenta para quien la registró; anulaciones y ediciones para quien las hizo.
+    const persona = n => {
+      n = String(n || '').trim() || 'Sin nombre';
+      if (!r.porPersona[n]) r.porPersona[n] = { ventas: 0, monto: 0, efectivo: 0, debito: 0, otros: 0, pulseras: 0, gratis: 0, devol: 0, gastos: 0, anuladas: 0, editadas: 0 };
+      return r.porPersona[n];
+    };
+    (registros || []).forEach(v => {
+      if (v.estado === 'anulado') { if (v.editadoPor) persona(v.editadoPor).anuladas++; return; }
+      const pp = persona(v.creadoPor), t = +v.total || 0;
+      pp.ventas++; pp.monto += t - (+v.devolucion || 0);
+      if ((v.medio || 'Efectivo') === 'Efectivo') pp.efectivo += t; else if (v.medio === 'Débito') pp.debito += t; else pp.otros += t;
+      pp.devol += +v.devolucion || 0;
+      lineasDe(v).forEach(l => { pp.pulseras += +l.cant; if (l.gratis) pp.gratis += +l.cant; });
+      if (v.editadoPor) persona(v.editadoPor).editadas++;
+    });
+    gas.forEach(g => { persona(g.creadoPor).gastos += +g.monto || 0; });
     vivos.forEach(v => {
       const t = +v.total || 0;
       r.bruto += t;
