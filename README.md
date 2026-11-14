@@ -1,32 +1,36 @@
 # Parque Acuático · Caja
 
-App para el celular que reemplaza la planilla de caja en papel. Registra cada grupo, calcula los totales y reparte la caja entre los socios. Funciona sin señal y sincroniza con una planilla de Google Sheets.
+App para el celular que reemplaza la planilla de caja en papel, para los tres lugares del parque (Licán Ray, Pucón y Villarrica). Registra cada venta, controla las pulseras y el tiempo, cuadra la caja y guarda el día en Drive. Funciona sin señal y sincroniza con una planilla de Google Sheets.
 
 ## Qué hace
 
-- **Registrar**: personas, nombre, tiempo (½ h / 1 h), productos y medio de pago. Si es transferencia, a qué cuenta llegó. La hora de entrada se toma sola y la salida se calcula.
-- **Pulseras**: 1 hora es siempre dorada. La de ½ hora va cambiando según el horario: la app propone un color distinto al de los grupos de ½ hora que siguen en el agua (los que entran en el mismo turno comparten color), y se puede cambiar con un toque. Así se llama a salir por color. Se configura en `Config` (`color_hora`, `colores_media`).
-- **Productos**: en el mismo registro del grupo se suman las calcetas u otros productos al total. Con 0 personas queda como venta suelta (alguien que solo compra).
-- **Inventario**: stock de cada producto en el día. Las ventas se descuentan solas; se registra el stock al abrir, la mercadería que llega y los conteos (si no cuadra, se corrige y queda anotada la diferencia). Lo que queda pasa al día siguiente.
+- **Lugares**: cada lugar tiene su propia caja, inventario y archivos. Quien trabaja en un lugar solo ve ese lugar. Los usuarios con rol `admin` (los dueños) cambian de lugar tocando el nombre arriba y tienen la pestaña **Reportes**.
+- **Vender (tipo carrito)**: en una sola venta se juntan entradas (½ hora, 1 hora, Full day), free pass, cortesías, juegos (arrastre, banano, sacachucha, extreme) y productos (calcetas, bolsa de teléfono), con un solo pago en **Efectivo** o **Débito**.
+- **Pulseras**: cada entrada entrega pulseras de su color. 1 hora es dorada, Full day plateada y cada juego tiene su color flúor. La ½ hora, el free pass y la cortesía usan el color del turno, que va rotando: los que entran en el mismo turno comparten color y se salta los colores que siguen en el agua. Se puede cambiar con un toque.
+- **Free pass y cortesía**: valen $0, usan pulsera (se descuenta del stock) y quedan contados aparte.
 - **Horario de 5 en 5**: la entrada se redondea a los 5 minutos siguientes (si son las 10:51, el turno parte a las 10:55).
-- **Alerta de término**: cuando se acaba el tiempo de un grupo, suena, vibra y aparece una ventana con el color de pulsera. Se repite cada 9 s hasta tocar "Listo" (máximo 3 min). Mientras hay grupos en el agua, la pantalla se mantiene encendida para que la alerta suene a tiempo.
-- **Grupos del día**: lista con la cuenta regresiva y barra de avance de cada grupo (se marca en naranjo cuando quedan 5 min), quién lo registró y quién lo editó. Tocando un grupo se puede corregir, registrar una devolución o anularlo.
-- **Caja**: efectivo, transferencias por socio, débito, devoluciones, gastos, neto y cuánto efectivo se lleva cada socio. Resumen para WhatsApp.
-- **Cerrar caja**: al cerrar, el día queda bloqueado (no se pueden agregar ni cambiar grupos, gastos ni inventario) y se guarda una planilla con todo el día en la carpeta **Cajas diarias – Parque Acuático** del Drive, ordenada por mes. Un usuario con rol `admin` puede reabrirla; al volver a cerrar, el archivo se actualiza.
-- **Quién hizo qué**: cada persona entra con su nombre y PIN. Todo queda firmado, y la pestaña `Historial` de la planilla guarda cada creación, edición y anulación con el detalle de lo que cambió.
-- **Sin señal**: los registros se guardan en el teléfono y se envían solos cuando vuelve la conexión.
+- **En el agua**: cada turno con su cuenta regresiva, los que están por entrar y la lista de ventas del día con quién la registró o editó. Tocando una venta se corrige, se registra una devolución o se anula.
+- **Alerta de término**: cuando se acaba el tiempo, suena, vibra y aparece "Llama a los de pulsera X". Se repite cada 9 s hasta tocar "Listo" (máximo 3 min). Mientras hay grupos en el agua la pantalla queda encendida.
+- **Inventario**: stock de productos y de pulseras por color. Las ventas se descuentan solas; se anota el stock al abrir, lo que llega y los conteos (si no cuadra, se corrige y queda la diferencia). Lo que queda pasa al día siguiente.
+- **Caja y cuadre**: total por medio de pago, lo vendido, pulseras entregadas por color (y cuántas quedan), gastos, neto y "neto ÷ socios" del lugar. Al cerrar se ingresa el **efectivo contado** y el **total de la máquina de débito**, y la app muestra si cuadra, sobra o falta.
+- **Cerrar caja**: el día queda bloqueado y se guarda una planilla del día en Drive (`Cajas diarias – Parque Acuático / <lugar> / <mes>`). Solo un `admin` puede reabrirla.
+- **Reportes** (admin): por lugar o todos juntos, por día, 7 días, mes o fechas a elección: recaudado, neto, efectivo, débito, pulseras, juegos, gratis, gastos, diferencias de caja y los cierres con su archivo.
+- **Quién hizo qué**: cada persona entra con nombre y PIN; todo queda firmado y la pestaña `Historial` guarda cada cambio.
+- **Sin señal**: lo registrado se guarda en el teléfono y se envía solo cuando vuelve la conexión.
 
 ## Versión de prueba para mostrar la app
 
 Agrega `?demo=1` al final de la dirección, por ejemplo `https://parque-acuatico-caja.github.io/?demo=1`.
-- Trae tres días inventados: anteayer y ayer cerrados, y hoy con grupos terminados, dos en el agua (uno sale a los pocos minutos, para ver la alerta) y uno por entrar.
+- Trae los tres lugares con tres días inventados: anteayer y ayer cerrados (con cuadre), y hoy con ventas terminadas, grupos en el agua (uno sale a los pocos minutos, para ver la alerta) y uno por entrar.
+- Usuario 1 es administrador (ve todo y los reportes), Usuario 2 trabaja en Licán Ray y Usuario 3 en Pucón.
+- Los juegos tienen precios de ejemplo solo en la prueba.
 - Todo queda solo en el teléfono de quien prueba, separado de los datos reales: no escribe en la planilla ni crea archivos en Drive.
 - Al final de la pestaña Caja hay un botón para volver a los días de prueba originales.
 - Quien pruebe no debería agregarla a la pantalla de inicio desde ese link: el ícono abre la versión real.
 
 ## Probarla ya (modo demo)
 
-Con `config.js` vacío la app funciona en modo demo: los datos quedan solo en ese teléfono. En "Grupos del día" hay un botón para cargar la planilla del 9 de marzo y comprobar que los números coinciden.
+Con `config.js` vacío la app funciona en modo demo: los datos quedan solo en ese teléfono.
 
 ## Instalación
 
@@ -84,37 +88,38 @@ Dónde vive cada cosa:
 
 | Pestaña | Para qué |
 |---|---|
-| `Usuarios` | Nombre, PIN, rol y activo (si/no). **Cambia los PIN de ejemplo (1111 y 2222).** Para sacar a alguien, pon `no` en activo. Solo quienes tienen rol `admin` pueden reabrir una caja cerrada; para el resto escribe `cajero`. |
-| `Config` | Precios de entrada (`precio_media`, `precio_hora`), colores de pulsera (`color_hora` para 1 hora; `colores_media` con la lista de colores de ½ hora), socios y cuenta del débito. Los cambios llegan a los teléfonos en la siguiente sincronización. (Si quedó una fila `precio_calceta` o `colores` de la versión anterior, ya no se usa.) |
-| `Productos` | Lo que se vende: `id` (una palabra, sin espacios, no cambiarlo después), `nombre`, `precio`, `activo` (si/no), `aviso_bajo` (avisa cuando quedan esa cantidad o menos) y `orden`. Para vender algo nuevo, agrega una fila. |
-| `Registros` | Un grupo o venta por fila. Cada fila guarda el precio que se cobró, así cambiar precios no altera días pasados. La columna `productos` dice qué compró. |
-| `Inventario` | Movimientos de stock: stock al abrir, llegadas de mercadería y correcciones por conteo, con quién los hizo. |
-| `Gastos` | Gastos del día y con qué se pagaron. |
-| `Cierres` | **La caja de cada día**: una fila por día cerrado con total, gastos, neto, efectivo, transferencias por socio, lo vendido, el reparto, el stock final y quién cerró. |
+| `Usuarios` | Nombre, PIN, rol, activo (si/no) y **sede** (lugar). Los dueños llevan rol `admin` y la sede vacía: ven todos los lugares. Los trabajadores llevan rol `cajero` y su lugar escrito igual que en `Sedes` (las tildes no importan). **Cambia los PIN de ejemplo.** |
+| `Sedes` | Los lugares: nombre, activo (si/no) y orden. Para abrir otro lugar, agrega una fila. |
+| `Entradas` | Entradas y juegos: `id` (no cambiarlo después), nombre, precio, minutos (0 = sin tiempo), color de pulsera (`rotativo` = el color del turno de ½ hora), gratis (si/no), sedes (`todas` o los lugares separados por coma), activo y orden. **Los juegos vienen con precio 0 y no se pueden vender hasta ponerles precio.** |
+| `Productos` | Lo que se vende aparte: `id`, nombre, precio, activo, `aviso_bajo` (avisa cuando quedan esa cantidad o menos), orden y sedes. |
+| `Config` | `colores_media` (lista de colores que rotan), `medios_pago` (`Efectivo,Débito`) y `socios_cantidad` por lugar (columna `sede`) para la línea "neto ÷ socios". Las claves antiguas quedan marcadas "Ya no se usa". |
+| `Registros` | Una venta por fila, con la columna `lineas` (qué entradas y juegos, a qué precio y color) y `productos`. Cada fila guarda el precio cobrado, así cambiar precios no altera días pasados. |
+| `Inventario` | Movimientos de stock de productos y pulseras (`pulsera:Verde`, etc.) por lugar. |
+| `Gastos` | Gastos del día por lugar y con qué se pagaron. |
+| `Cierres` | Una fila por día y lugar: totales, cuadre (efectivo contado, débito de la máquina y diferencias), pulseras entregadas, stock final, quién cerró y el enlace al archivo del día. |
 | `Historial` | Registro de cada acción, quién la hizo y qué cambió. |
 
 ### Dónde quedan guardadas las cajas
 
 Todo vive en el Drive del correo del negocio.
 - Cada grupo se guarda en `Registros` apenas se registra (o cuando vuelve la señal).
-- Al tocar **Cerrar caja del día**, se escribe la fila del día en `Cierres` y se crea un archivo propio del día: `Cajas diarias – Parque Acuático / 2026-10 Octubre / Caja 2026-10-28 (miércoles)`. Tiene el resumen, el reparto, todos los grupos, los gastos y el inventario. El enlace queda en la columna `archivo` de `Cierres` y en la app (pestaña Caja).
+- Al tocar **Cerrar caja del día**, se escribe la fila del día en `Cierres` y se crea un archivo propio del día: `Cajas diarias – Parque Acuático / Pucón / 2026-10 Octubre / Caja Pucón 2026-10-28 (miércoles)`. Tiene el resumen, el cuadre, entradas y juegos, pulseras por color, productos, gastos y una pestaña con todas las ventas. El enlace queda en la columna `archivo` de `Cierres` y en la app (pestaña Caja).
 - Para ver un día anterior: abre su archivo en esa carpeta, o en la app toca la fecha y elige ese día.
 - Google guarda versiones de la planilla: **Archivo → Historial de versiones** permite ver o recuperar cómo estaba en cualquier momento.
 - Para un respaldo aparte: **Archivo → Descargar → Excel**, o **Archivo → Hacer una copia**.
 
-Para definir la cuenta del débito, escribe el nombre del socio en `cuenta_debito`. Mientras esté vacía, el débito se suma al total pero no se reparte.
-
-## Cómo se reparte la caja
+## Cómo se calcula la caja
 
 1. **Total recaudado** = todo lo cobrado − devoluciones.
 2. **Neto** = total − gastos.
-3. **Parte de cada socio** = neto ÷ número de socios.
-4. A cada socio se le descuenta lo que ya le llegó a su cuenta por transferencia. Lo que falta se lo lleva en efectivo.
-5. Si un socio recibió más que su parte por transferencia, la app indica cuánto debe pasarle al otro.
-
-Gastos y devoluciones pueden salir de la caja o del dinero de un socio. Si los pagó un socio, se le compensa en el reparto.
+3. **Efectivo que debe haber** = efectivo cobrado − devoluciones − gastos pagados con la caja. Se compara con el efectivo contado.
+4. **Débito**: la suma de las ventas con débito se compara con el total de la máquina.
+5. **Neto ÷ socios**: solo informativo, con la cantidad de socios de cada lugar (`socios_cantidad` en `Config`).
 
 ## Actualizar
+
+**Orden importante:** primero el Apps Script (Codigo.gs) y después GitHub. Si la app nueva se conecta a un Apps Script antiguo, muestra "Falta actualizar la planilla" y no deja vender, para no perder datos.
+
 
 - **Cambios en la app**: sube los archivos a GitHub y aumenta el número `VERSION` en `sw.js` para que los teléfonos tomen la versión nueva.
 - **Cambios en `Codigo.gs`**: pega el código nuevo encima del anterior y guarda. Si la versión nueva necesita permisos nuevos (por ejemplo, Drive para los archivos diarios), ejecuta una vez la función `setup` desde el editor y acepta los permisos; no borra datos. Luego Implementar → Administrar implementaciones → editar (lápiz) → Versión: **Nueva versión** → Implementar. Así se mantiene la misma URL. Las pestañas y columnas nuevas se crean solas la primera vez que la app se conecta; los datos existentes no se tocan.

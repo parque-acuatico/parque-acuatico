@@ -1,37 +1,57 @@
-/* Cálculos de caja e inventario — sin dependencias, usable en navegador y en Node.
-   Las funciones de stock (productosDe, stockDia, stockAntes) están copiadas igual en apps-script/Codigo.gs. */
+/* Cálculos de caja, pulseras e inventario — sin dependencias.
+   Se usa en el navegador (window.Calc), en Node (module.exports) y en Apps Script
+   (se copia dentro de Codigo.gs al armar el proyecto: no editar esa copia a mano). */
 (function (root) {
   'use strict';
 
-  function precioPersona(cfg, minutos) {
-    return +minutos === 60 ? +cfg.precio_hora : +cfg.precio_media;
+  function parse(a) {
+    if (typeof a === 'string' && a) { try { return JSON.parse(a); } catch (e) { return null; } }
+    return a;
   }
 
-  /** Productos vendidos en un registro: [{id, nombre, cant, precio}].
-   *  Registros antiguos solo tienen "calcetas" + "precioCalceta". */
+  /** Entradas y juegos de una venta: [{id, nombre, cant, precio, minutos, color, rot, gratis}].
+   *  Ventas antiguas (antes del carrito) solo tienen personas + minutos + pulsera. */
+  function lineasDe(r) {
+    const a = parse(r && r.lineas);
+    if (Array.isArray(a)) return a.filter(l => l && +l.cant > 0);
+    if (r && +r.personas > 0 && +r.minutos > 0) {
+      const hora = +r.minutos === 60;
+      return [{ id: hora ? 'hora' : 'media', nombre: hora ? '1 hora' : '½ hora', cant: +r.personas, precio: +r.precioPersona || 0,
+        minutos: +r.minutos, color: r.pulsera || '', rot: !hora, gratis: false }];
+    }
+    return [];
+  }
+
+  /** Productos de una venta: [{id, nombre, cant, precio}]. Las antiguas solo tienen calcetas. */
   function productosDe(r) {
-    let a = r && r.productos;
-    if (typeof a === 'string' && a) { try { a = JSON.parse(a); } catch (e) { a = null; } }
+    const a = parse(r && r.productos);
     if (Array.isArray(a)) return a.filter(p => p && +p.cant > 0);
     if (r && +r.calcetas > 0) return [{ id: 'calcetas', nombre: 'Calcetas', cant: +r.calcetas, precio: +r.precioCalceta || 0 }];
     return [];
   }
 
-  function totalGrupo(g) {
-    const entradas = (+g.personas || 0) * (+g.precioPersona || 0);
-    const prods = productosDe(g).reduce((s, p) => s + (+p.cant) * (+p.precio || 0), 0);
-    return entradas + prods;
+  function totalVenta(v) {
+    return lineasDe(v).reduce((s, l) => s + (+l.cant) * (+l.precio || 0), 0) +
+      productosDe(v).reduce((s, p) => s + (+p.cant) * (+p.precio || 0), 0);
+  }
+
+  /** Lo que una venta descuenta del inventario: productos y una pulsera por cada entrada. */
+  function consumosDe(r) {
+    const out = productosDe(r).map(p => ({ id: p.id, cant: +p.cant }));
+    lineasDe(r).forEach(l => { if (l.color) out.push({ id: 'pulsera:' + l.color, cant: +l.cant }); });
+    return out;
   }
 
   /**
-   * Stock de un día por producto.
-   * - inicio: último "Stock al abrir" del día; si no hay, lo que quedó el día anterior (previo); si no, desconocido.
-   * - queda = inicio + llegadas + ajustes − vendidas.
+   * Stock de un día por ítem (productos e ids "pulsera:Color").
+   * inicio: último "Stock al abrir" del día; si no hay, lo que quedó el día anterior; si no, desconocido.
+   * queda = inicio + llegadas + ajustes − salidas.
    */
   function stockDia(ids, previo, movs, regs) {
     const res = {};
     const vivos = (movs || []).filter(m => m.estado !== 'anulado');
-    const ventas = (regs || []).filter(r => r.estado !== 'anulado');
+    const usados = {};
+    (regs || []).filter(r => r.estado !== 'anulado').forEach(r => consumosDe(r).forEach(c => { usados[c.id] = (usados[c.id] || 0) + c.cant; }));
     ids.forEach(id => {
       const m = vivos.filter(x => x.producto === id);
       const ini = m.filter(x => x.tipo === 'inicial');
@@ -40,8 +60,7 @@
       else if (previo && previo[id] != null) { inicio = +previo[id]; fuente = 'anterior'; }
       const entradas = m.filter(x => x.tipo === 'ingreso').reduce((s, x) => s + (+x.cantidad || 0), 0);
       const ajustes = m.filter(x => x.tipo === 'ajuste').reduce((s, x) => s + (+x.cantidad || 0), 0);
-      let vendidas = 0;
-      ventas.forEach(r => productosDe(r).forEach(p => { if (p.id === id) vendidas += +p.cant; }));
+      const vendidas = usados[id] || 0;
       res[id] = { inicio, fuente, entradas, ajustes, vendidas, queda: inicio == null ? null : inicio + entradas + ajustes - vendidas };
     });
     return res;
@@ -61,91 +80,66 @@
   }
 
   /**
-   * Resumen del día y reparto entre socios.
-   * - "tiene": lo que cada socio ya recibió en su cuenta (transferencias, débito si es su cuenta)
-   *   menos devoluciones o gastos que pagó él.
-   * - "caja": efectivo físico = efectivo cobrado − devoluciones en efectivo − gastos pagados en efectivo.
-   * - Cada socio debe terminar con la misma parte; "entregar" = efectivo que le toca de la caja.
-   *   Si es negativo, ese socio recibió de más por transferencia y debe pasarle la diferencia al otro.
+   * Resumen de un día (o de un período, si se le pasan varias fechas).
+   * - porMedio: cuánto entró por Efectivo, Débito (y Transferencia en ventas antiguas).
+   * - efectivoEsperado = efectivo cobrado − devoluciones − gastos pagados con la caja.
+   * - porSocio: neto ÷ cantidad de socios del lugar (si está configurada).
    */
   function resumen(registros, gastos, cfg) {
-    const socios = (cfg.socios && cfg.socios.length) ? cfg.socios : ['Socio 1', 'Socio 2'];
-    const regs = (registros || []).filter(r => r.estado !== 'anulado');
+    cfg = cfg || {};
+    const vivos = (registros || []).filter(r => r.estado !== 'anulado');
     const gas = (gastos || []).filter(g => g.estado !== 'anulado');
-    const ctaDeb = cfg.cuenta_debito && socios.indexOf(cfg.cuenta_debito) >= 0 ? cfg.cuenta_debito : '';
-
     const r = {
-      socios, grupos: 0, ventasSueltas: 0, personas: 0, personasMedia: 0, personasHora: 0,
-      ventaMedia: 0, ventaHora: 0, ventaProductos: 0, unidades: 0, porProducto: {},
-      efectivo: 0, transf: {}, debito: 0, bruto: 0,
-      devol: 0, devEfectivo: 0, devSocio: {},
-      totalGastos: 0, gastosEf: 0, gastosSocio: {}, listaGastos: gas,
-      cuentaDebito: ctaDeb
+      ventas: vivos.length, pulseras: 0, gratis: 0, porEntrada: {}, porColor: {}, porProducto: {},
+      porMedio: {}, bruto: 0, devol: 0, ventaEntradas: 0, ventaProductos: 0, unidades: 0,
+      totalGastos: 0, gastosCaja: 0, listaGastos: gas
     };
-    socios.forEach(s => { r.transf[s] = 0; r.devSocio[s] = 0; r.gastosSocio[s] = 0; });
-
-    regs.forEach(x => {
-      const t = +x.total || 0;
-      const p = +x.personas || 0;
+    vivos.forEach(v => {
+      const t = +v.total || 0;
       r.bruto += t;
-      if (p > 0) r.grupos++; else r.ventasSueltas++;
-      r.personas += p;
-      const entr = p * (+x.precioPersona || 0);
-      if (+x.minutos === 60) { r.personasHora += p; r.ventaHora += entr; }
-      else { r.personasMedia += p; r.ventaMedia += entr; }
-      productosDe(x).forEach(pr => {
-        const k = pr.id;
-        if (!r.porProducto[k]) r.porProducto[k] = { nombre: pr.nombre, cant: 0, monto: 0 };
-        r.porProducto[k].cant += +pr.cant;
-        r.porProducto[k].monto += (+pr.cant) * (+pr.precio || 0);
-        r.unidades += +pr.cant;
-        r.ventaProductos += (+pr.cant) * (+pr.precio || 0);
+      const medio = v.medio || 'Efectivo';
+      r.porMedio[medio] = (r.porMedio[medio] || 0) + t;
+      lineasDe(v).forEach(l => {
+        const k = l.id;
+        if (!r.porEntrada[k]) r.porEntrada[k] = { nombre: l.nombre, cant: 0, monto: 0, gratis: !!l.gratis };
+        r.porEntrada[k].cant += +l.cant;
+        r.porEntrada[k].monto += (+l.cant) * (+l.precio || 0);
+        r.pulseras += +l.cant;
+        if (l.gratis) r.gratis += +l.cant;
+        r.ventaEntradas += (+l.cant) * (+l.precio || 0);
+        if (l.color) {
+          if (!r.porColor[l.color]) r.porColor[l.color] = { cant: 0, gratis: 0 };
+          r.porColor[l.color].cant += +l.cant;
+          if (l.gratis) r.porColor[l.color].gratis += +l.cant;
+        }
       });
-
-      if (x.medio === 'Efectivo') r.efectivo += t;
-      else if (x.medio === 'Transferencia') r.transf[x.cuenta] = (r.transf[x.cuenta] || 0) + t;
-      else if (x.medio === 'Débito') r.debito += t;
-
-      const d = +x.devolucion || 0;
-      if (d) {
-        r.devol += d;
-        if (!x.devolucionDesde || x.devolucionDesde === 'Efectivo') r.devEfectivo += d;
-        else r.devSocio[x.devolucionDesde] = (r.devSocio[x.devolucionDesde] || 0) + d;
-      }
+      productosDe(v).forEach(p => {
+        if (!r.porProducto[p.id]) r.porProducto[p.id] = { nombre: p.nombre, cant: 0, monto: 0 };
+        r.porProducto[p.id].cant += +p.cant;
+        r.porProducto[p.id].monto += (+p.cant) * (+p.precio || 0);
+        r.unidades += +p.cant;
+        r.ventaProductos += (+p.cant) * (+p.precio || 0);
+      });
+      r.devol += +v.devolucion || 0;
     });
-    r.calcetas = (r.porProducto.calcetas || { cant: 0 }).cant;
-
     gas.forEach(g => {
       const m = +g.monto || 0;
       r.totalGastos += m;
-      if (!g.pagadoDesde || g.pagadoDesde === 'Efectivo') r.gastosEf += m;
-      else r.gastosSocio[g.pagadoDesde] = (r.gastosSocio[g.pagadoDesde] || 0) + m;
+      if (!g.pagadoDesde || g.pagadoDesde === 'Efectivo') r.gastosCaja += m;
     });
-
-    r.recaudado = r.bruto - r.devol;                 // lo que la planilla llama "Total"
-    r.netoTotal = r.recaudado - r.totalGastos;       // después de gastos
-    r.debitoPendiente = ctaDeb ? 0 : r.debito;       // débito sin cuenta definida: no se reparte aún
-    r.caja = r.efectivo - r.devEfectivo - r.gastosEf;
-
-    r.tiene = {};
-    socios.forEach(s => {
-      r.tiene[s] = (r.transf[s] || 0) + (s === ctaDeb ? r.debito : 0) - (r.devSocio[s] || 0) - (r.gastosSocio[s] || 0);
-    });
-
-    r.repartible = r.netoTotal - r.debitoPendiente;
-    r.parte = r.repartible / socios.length;
-    r.entregar = {};
-    socios.forEach(s => { r.entregar[s] = r.parte - r.tiene[s]; });
-
-    // Ajustes entre socios cuando alguno recibió de más por transferencia
-    r.ajustes = [];
-    const deben = socios.filter(s => r.entregar[s] < 0);
-    const reciben = socios.filter(s => r.entregar[s] > 0);
-    deben.forEach(s => r.ajustes.push({ de: s, a: reciben.length === 1 ? reciben[0] : '', monto: -r.entregar[s] }));
+    r.efectivo = r.porMedio['Efectivo'] || 0;
+    r.debito = r.porMedio['Débito'] || 0;
+    r.transferencia = r.porMedio['Transferencia'] || 0;
+    r.recaudado = r.bruto - r.devol;
+    r.neto = r.recaudado - r.totalGastos;
+    r.efectivoEsperado = r.efectivo - r.devol - r.gastosCaja;   // las devoluciones se pagan en efectivo
+    const n = +cfg.socios_cantidad || 0;
+    r.socios = n;
+    r.porSocio = n > 0 ? r.neto / n : null;
     return r;
   }
 
-  const api = { precioPersona, productosDe, totalGrupo, stockDia, stockAntes, resumen };
+  const api = { lineasDe, productosDe, totalVenta, consumosDe, stockDia, stockAntes, resumen };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Calc = api;
-})(this);
+})(typeof globalThis !== 'undefined' ? globalThis : this);
