@@ -562,7 +562,7 @@ async function pantallaEncendida() {
 function nuevaVenta() {
   return {
     nombre: '', ents: {}, prods: {}, medio: S.config.medios_pago[0], entrada: entradaPropuesta(), entradaAuto: true,
-    obs: '', colorRot: '', colorManual: false, devolucion: '', orig: null
+    obs: '', colorRot: '', colorManual: false, devolucion: '', orig: null, abrir: ''
   };
 }
 function ventaDesde(v) {
@@ -1248,6 +1248,11 @@ function seccion(titulo, cuerpo, key, extra) {
 }
 
 /* ---------- Vender ---------- */
+function grupoEntrada(e) {
+  if (e.gratis) return 'gratis';
+  if (e.rot || e.minutos > 0 || e.id === 'full' || /full|d[ií]a/i.test(e.nombre)) return 'parque';
+  return 'juego';
+}
 function vistaVender() {
   if (diaCerrado()) {
     return `<section class="vacio-card" data-key="reg-cerrado">
@@ -1268,74 +1273,96 @@ function vistaVender() {
   const dev = enteroDe(f.devolucion) || 0;
   const conTiempo = lineas.filter(l => l.minutos > 0);
   const hayRot = lineas.some(l => l.rot);
+  const nPul = lineas.reduce((s, l) => s + l.cant, 0);
 
-  const tile = e => {
+  // Una fila por cosa que se vende: tocar la fila suma uno; − y + a la derecha.
+  const filaEnt = e => {
     const n = +f.ents[e.id] || 0;
     const sinPrecio = !e.gratis && !(e.precio > 0);
     const color = e.rot ? colRot : e.color;
     const s = st['pulsera:' + color];
-    const tipo = e.minutos > 0 ? e.minutos + ' min' : e.id === 'full' ? 'Todo el día' : 'Juego';
-    return `<div class="ent ${n ? 'on' : ''} ${sinPrecio ? 'off' : ''}" data-key="e-${esc(e.id)}">
-      <button type="button" class="ent-main" data-act="ent" data-v="${esc(e.id)}" ${sinPrecio ? 'disabled' : ''}>
-        ${pulseraVis(color)}
-        <b>${esc(e.nombre)}</b>
-        <span class="ent-precio">${sinPrecio ? 'Falta precio' : e.gratis ? 'Gratis' : fmt(e.precio)}</span>
-        <small>${esc(tipo)} · ${esc(String(color).toLowerCase())}${s && s.queda != null && s.queda <= 10 ? ` · <em>quedan ${s.queda}</em>` : ''}</small>
+    const det = [e.minutos > 0 ? (e.minutos % 60 ? e.minutos + ' min' : (e.minutos / 60) + (e.minutos === 60 ? ' hora' : ' horas')) : grupoEntrada(e) === 'parque' ? 'todo el día' : '',
+      String(color).toLowerCase()].filter(Boolean).join(' · ');
+    return `<div class="item ${n ? 'on' : ''} ${sinPrecio ? 'off' : ''}" data-key="e-${esc(e.id)}">
+      <button type="button" class="item-main" data-act="ent" data-v="${esc(e.id)}" ${sinPrecio ? 'disabled' : ''}>
+        <span class="item-pul" style="--c:${colorHex(color)}"></span>
+        <span class="item-txt"><b>${esc(e.nombre)}</b><small>${esc(det)}${s && s.queda != null && s.queda <= 10 ? ` · <em>quedan ${s.queda}</em>` : ''}</small></span>
+        <span class="item-precio">${sinPrecio ? '<em>Sin precio</em>' : e.gratis ? 'Gratis' : fmt(e.precio)}</span>
       </button>
-      ${n ? `<span class="ent-n" data-count="${n}" data-t="n">${n}</span><button type="button" class="ent-menos" data-act="ent-" data-v="${esc(e.id)}" aria-label="Quitar uno">−</button>` : ''}
+      ${sinPrecio ? '' : `<div class="item-n">${n ? `<button type="button" data-act="ent-" data-v="${esc(e.id)}" aria-label="Quitar uno">−</button><b data-count="${n}" data-t="n">${n}</b>` : ''}<button type="button" class="mas" data-act="ent" data-v="${esc(e.id)}" aria-label="Agregar uno">+</button></div>`}
     </div>`;
   };
-
-  const prodFila = p => {
+  const filaProd = p => {
     const n = +f.prods[p.id] || 0;
     const s = st[p.id];
     const orig = f.orig ? (f.orig.productos.find(x => x.id === p.id) || { cant: 0 }).cant : 0;
-    let q = '<small class="stock">Sin conteo de stock</small>';
+    let q = '';
     if (s && s.queda != null) {
       const queda = s.queda - (n - orig);
-      q = `<small class="stock ${queda < 0 ? 'neg' : queda <= p.aviso_bajo ? 'bajo' : ''}">${queda < 0 ? 'Faltan ' + (-queda) : 'Quedan ' + queda}</small>`;
+      if (queda <= p.aviso_bajo) q = ` · <em>${queda < 0 ? 'faltan ' + (-queda) : 'quedan ' + queda}</em>`;
     }
-    return `<div class="prod-row ${n ? 'con' : ''}" data-key="pi-${esc(p.id)}"><div class="prod-txt"><b>${esc(p.nombre)}</b><span>${fmt(p.precio)}</span>${q}</div>${stepper('pstep', p.id, n, 0)}</div>`;
+    return `<div class="item ${n ? 'on' : ''}" data-key="p-${esc(p.id)}">
+      <button type="button" class="item-main" data-act="pstep" data-f="${esc(p.id)}" data-v="1">
+        <span class="item-pul prod"></span>
+        <span class="item-txt"><b>${esc(p.nombre)}</b>${q ? `<small>${q.slice(3)}</small>` : ''}</span>
+        <span class="item-precio">${fmt(p.precio)}</span>
+      </button>
+      <div class="item-n">${n ? `<button type="button" data-act="pstep" data-f="${esc(p.id)}" data-v="-1" aria-label="Quitar uno">−</button><b data-count="${n}" data-t="n">${n}</b>` : ''}<button type="button" class="mas" data-act="pstep" data-f="${esc(p.id)}" data-v="1" aria-label="Agregar uno">+</button></div>
+    </div>`;
   };
+  const grupo = (titulo, lista, key) => lista.length ? `<div class="grupo" data-key="${key}"><h3 class="grupo-h">${titulo}</h3>${lista.join('')}</div>` : '';
+  const ents = c.entradas;
+  const sinPrecio = ents.some(e => !e.gratis && !(e.precio > 0));
 
+  // Pulseras a entregar: lo que la cajera tiene que pasar, en grande
+  const porColor = {};
+  lineas.forEach(l => { if (!porColor[l.color]) porColor[l.color] = { cant: 0, sale: '' }; porColor[l.color].cant += l.cant; if (l.minutos) porColor[l.color].sale = sumarMin(entrada, l.minutos); });
   const cruzan = hayRot ? rotativosQueCruzan(entrada, S.registros, S.editId).filter(t => t.entrada !== entrada) : [];
+  const resumenCarrito = lineas.map(l => l.cant + ' × ' + l.nombre).concat(prods.map(p => p.cant + ' × ' + p.nombre.toLowerCase())).join(', ');
 
   return `${prev ? `<div class="editando" data-key="editando"><div><b>Editando ${esc(prev.nombre)}</b><small>La registró ${esc(prev.creadoPor || '?')} a las ${esc(horaDe(prev.creadoEn))}</small></div><button class="btn sm" data-act="cancelar">Cancelar</button></div>` : ''}
   ${otroDia ? `<p class="aviso-dia" data-key="otro-dia">Estás vendiendo en el ${esc(fechaLarga(S.fecha))}, no hoy.</p>` : ''}
-  ${seccion('Entradas y juegos', `<div class="ents">${c.entradas.map(tile).join('')}</div>
-    ${c.entradas.some(e => !e.gratis && !(e.precio > 0)) ? '<p class="ayuda">Los que dicen "Falta precio" se activan cuando se ponga su valor en la pestaña Entradas de la planilla.</p>' : ''}`, 's-ents')}
-  ${c.productos.length ? seccion('Productos', `<div class="prods">${c.productos.map(prodFila).join('')}</div>`, 's-prods') : ''}
-  ${seccion('Venta actual', `
-    ${!lineas.length && !prods.length ? '<p class="muted carrito-vacio" data-key="vacio">Toca una entrada, un juego o un producto para agregarlo.</p>' : `<div class="carrito">
-      ${lineas.map(l => `<div class="c-linea" data-key="cl-${esc(l.id)}"><i style="background:${colorHex(l.color)}"></i><span><b>${l.cant} × ${esc(l.nombre)}</b><small>Pulsera ${esc(String(l.color).toLowerCase())}${l.minutos ? ', sale ' + sumarMin(entrada, l.minutos) : ''}</small></span><b>${l.gratis ? 'Gratis' : fmt(l.cant * l.precio)}</b></div>`).join('')}
-      ${prods.map(p => `<div class="c-linea" data-key="cp-${esc(p.id)}"><i class="prod"></i><span><b>${p.cant} × ${esc(p.nombre)}</b></span><b>${fmt(p.cant * p.precio)}</b></div>`).join('')}
-    </div>`}
-    ${conTiempo.length ? `<div class="horario" data-key="horario">
-      <span>Entran a las</span>
-      <input id="f-entrada" class="hora" type="time" step="300" data-field="entrada" value="${esc(entrada)}" aria-label="Hora de entrada">
-      ${entradaAutoActiva() ? `<small class="muted">Son las ${ahoraHM()}; el turno parte a los 5 minutos siguientes.</small>` : ''}
-    </div>` : ''}
-    ${hayRot ? `<div class="sub" data-key="pulseras">
-      <p class="sub-t">Color de pulsera del turno${f.colorManual ? ' (elegido a mano)' : ''}</p>
+  <section class="paso" data-key="s-que">
+    <h2 class="paso-h"><span class="paso-n">1</span>¿Qué compran?</h2>
+    ${grupo('Parque', ents.filter(e => grupoEntrada(e) === 'parque').map(filaEnt), 'g-parque')}
+    ${grupo('Juegos', ents.filter(e => grupoEntrada(e) === 'juego').map(filaEnt), 'g-juegos')}
+    ${grupo('Gratis', ents.filter(e => grupoEntrada(e) === 'gratis').map(filaEnt), 'g-gratis')}
+    ${grupo('Productos', c.productos.map(filaProd), 'g-prods')}
+    ${sinPrecio && esAdmin() ? '<p class="ayuda" data-key="sin-precio">Lo que dice "Sin precio" se activa poniéndole precio en Ajustes (toca tu nombre arriba).</p>' : ''}
+  </section>
+
+  ${lineas.length ? `<section class="entrega" data-key="entrega">
+    <p class="entrega-t">Entrega ${plural(nPul, 'pulsera', 'pulseras')}</p>
+    <div class="entrega-pul">${Object.keys(porColor).map(col => `<div class="ep" data-key="ep-${esc(col)}" style="--c:${colorHex(col)}"><i></i><b>${porColor[col].cant}</b><span>${esc(col)}${porColor[col].sale ? `<small>salen ${porColor[col].sale}</small>` : ''}</span></div>`).join('')}</div>
+    ${conTiempo.length || hayRot ? `<button type="button" class="link" data-act="ver-mas" data-v="hora">${f.abrir === 'hora' ? 'Listo' : 'Cambiar hora' + (hayRot ? ' o color' : '')}</button>` : ''}
+    ${f.abrir === 'hora' ? `<div class="ajuste" data-key="aj-hora">
+      ${conTiempo.length ? `<p class="sub-t">Entran a las</p>
+      <div class="hora-paso"><button type="button" data-act="hora" data-v="-5" aria-label="5 minutos antes">−5</button><b>${esc(entrada)}</b><button type="button" data-act="hora" data-v="5" aria-label="5 minutos después">+5</button></div>
+      ${entradaAutoActiva() ? `<p class="ayuda">Son las ${ahoraHM()}: el turno parte a los 5 minutos siguientes.</p>` : ''}` : ''}
+      ${hayRot ? `<p class="sub-t">Color del turno${f.colorManual ? ' (elegido a mano)' : ''}</p>
       <div class="colores-media">${c.colores_media.map(col => {
         const ocupado = cruzan.find(t => t.color === col);
         return `<button type="button" class="col-chip ${col === colRot ? 'on' : ''} ${ocupado ? 'ocupado' : ''}" data-act="pulsera" data-v="${esc(col)}"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span>${ocupado ? `<small>sale ${esc(ocupado.salida)}</small>` : ''}</button>`;
-      }).join('')}</div>
+      }).join('')}</div>` : ''}
     </div>` : ''}
-    <label class="lbl" for="f-nombre">Nombre o referencia <span class="muted">(opcional)</span></label>
-    <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: familia del quitasol azul" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
-    <p class="sub-t">Medio de pago</p>
+  </section>` : ''}
+
+  <section class="paso" data-key="s-pago">
+    <h2 class="paso-h"><span class="paso-n">2</span>¿Cómo pagan?</h2>
     <div class="tiles medios" style="--n:${c.medios_pago.length}">${c.medios_pago.map(m => `<button type="button" class="tile pago ${f.medio === m ? 'on' : ''}" data-act="set" data-f="medio" data-v="${esc(m)}">${ICON[sinTildes(m)] || ICON.efectivo}<b>${esc(m)}</b></button>`).join('')}</div>
-    <label class="lbl" for="f-obs">Observaciones</label>
-    <input id="f-obs" class="inp" data-field="obs" value="${esc(f.obs)}" placeholder="Opcional" autocomplete="off">
-    ${prev ? `<div class="devol">
-      <label class="lbl" for="f-dev">Devolución al cliente (en efectivo)</label>
-      <input id="f-dev" class="inp" data-field="devolucion" inputmode="numeric" value="${esc(f.devolucion)}" placeholder="$0">
-    </div>` : ''}`, 's-venta')}
+    ${f.abrir === 'nota' || f.nombre || f.obs || prev ? `<div class="ajuste" data-key="aj-nota">
+      <label class="lbl" for="f-nombre">Nombre o referencia</label>
+      <input id="f-nombre" class="inp" data-field="nombre" value="${esc(f.nombre)}" placeholder="Ej: familia del quitasol azul" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
+      <label class="lbl" for="f-obs">Nota</label>
+      <input id="f-obs" class="inp" data-field="obs" value="${esc(f.obs)}" placeholder="Opcional" autocomplete="off">
+      ${prev ? `<label class="lbl" for="f-dev">Devolución al cliente (en efectivo)</label>
+      <input id="f-dev" class="inp" data-field="devolucion" inputmode="numeric" value="${esc(f.devolucion)}" placeholder="$0">` : ''}
+    </div>` : `<button type="button" class="link" data-act="ver-mas" data-v="nota" data-key="l-nota">+ Agregar nombre o nota</button>`}
+  </section>
   ${prev ? `<button class="btn quitar" data-act="${prev.estado === 'anulado' ? 'restaurar' : 'anular'}" data-v="${prev.id}">${prev.estado === 'anulado' ? 'Restaurar esta venta' : 'Anular esta venta'}</button>` : ''}
   <div class="accion" data-key="accion">
-    <div class="acc-total"><small>${lineas.length ? esc(plural(lineas.reduce((s, l) => s + l.cant, 0), 'pulsera', 'pulseras')) : prods.length ? 'Solo productos' : 'Carrito vacío'}${prev && dev ? ' · devolución ' + fmt(dev) : ''}</small><b>${cnt(total)}</b></div>
-    <button class="btn coral" data-act="guardar" ${S.servidorViejo ? 'disabled' : ''}>${prev ? 'Guardar' : lineas.length ? 'Cobrar y entregar' : 'Cobrar'}</button>
+    <div class="acc-total"><small>${resumenCarrito ? esc(resumenCarrito) : 'Toca lo que compran'}${prev && dev ? ' · devolución ' + fmt(dev) : ''}</small><b>${cnt(total)}</b></div>
+    <button class="btn coral" data-act="guardar" ${S.servidorViejo || (!lineas.length && !prods.length) ? 'disabled' : ''}>${prev ? 'Guardar' : 'Cobrar'}</button>
   </div>`;
 }
 
@@ -2017,6 +2044,13 @@ const ACT = {
   },
   'ent-'(v) { S.venta.ents[v] = Math.max(0, (+S.venta.ents[v] || 0) - 1); renderTab(); },
   pulsera(v) { S.venta.colorRot = v; S.venta.colorManual = true; renderTab(); },
+  'ver-mas'(v) { S.venta.abrir = S.venta.abrir === v ? '' : v; renderTab(); if (v === 'nota' && S.venta.abrir) { const i = $('#f-nombre'); if (i) i.focus(); } },
+  hora(v) {
+    const f = S.venta;
+    f.entrada = sumarMin(horaVenta(), +v); f.entradaAuto = false;
+    if (!f.colorManual) f.colorRot = '';
+    renderTab();
+  },
   pstep(v, el) {
     const id = el.dataset.f;
     S.venta.prods[id] = Math.max(0, (+S.venta.prods[id] || 0) + (+v));
