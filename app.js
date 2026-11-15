@@ -252,7 +252,7 @@ const productoPorId = id => S.config.productos.find(p => p.id === id);
 const entradaPorId = id => S.config.entradas.find(e => e.id === id);
 function idsInventario() { return S.config.productos.map(p => p.id).concat(S.config.pulseras.map(c => 'pulsera:' + c)); }
 function nombreItem(id) {
-  if (String(id).indexOf('pulsera:') === 0) return 'Pulsera ' + id.slice(8).toLowerCase();
+  if (String(id).indexOf('pulsera:') === 0) return 'Pulsera ' + id.slice(8);
   const p = productoPorId(id); return p ? p.nombre : id;
 }
 
@@ -488,7 +488,7 @@ function pedirPermisoNotif() {
 function notificar(t) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
-    navigator.serviceWorker.ready.then(reg => reg.showNotification('⏰ Llama a los de pulsera ' + String(t.color).toLowerCase(), {
+    navigator.serviceWorker.ready.then(reg => reg.showNotification('⏰ Llama a los de pulsera ' + String(t.color), {
       body: t.nombre + ' · ' + plural(t.cant, 'pulsera', 'pulseras') + ' de ' + t.l.nombre + ' · salida ' + t.salida,
       tag: 'fin-' + t.id, renotify: true, requireInteraction: true,
       icon: 'icon-192.png', badge: 'icon-192.png', vibrate: [400, 150, 400, 150, 700]
@@ -535,7 +535,7 @@ function renderAlerta() {
   const html = `<div class="al-hoja" role="alertdialog" aria-labelledby="al-t">
       <div class="al-icono"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg></div>
       <h2 id="al-t">${S.alertas.length > 1 ? 'Se acabó el tiempo de ' + S.alertas.length + ' grupos' : 'Se acabó el tiempo'}</h2>
-      ${S.alertas.map(t => `<div class="al-grupo" data-key="al-${t.id}"><i style="background:${colorHex(t.color)}"></i><div><b>Llama a los de pulsera ${esc(String(t.color).toLowerCase())}</b><span>${esc(t.nombre)}: ${plural(t.cant, 'pulsera', 'pulseras')} de ${esc(t.l.nombre)}. Salían a las ${esc(t.salida)}.</span></div></div>`).join('')}
+      ${S.alertas.map(t => `<div class="al-grupo" data-key="al-${t.id}"><i style="background:${colorHex(t.color)}"></i><div><b>Llama a los de pulsera ${esc(String(t.color))}</b><span>${esc(t.nombre)}: ${plural(t.cant, 'pulsera', 'pulseras')} de ${esc(t.l.nombre)}. Salían a las ${esc(t.salida)}.</span></div></div>`).join('')}
       <button class="btn coral big" data-act="alerta-ok">Listo, ya salieron</button>
     </div>`;
   if (el.hidden || !el.firstElementChild) { el.innerHTML = html; el.hidden = false; void el.offsetWidth; el.classList.add('show'); }
@@ -662,7 +662,7 @@ function guardarVenta() {
 function resumenPulseras(lineas) {
   const m = {};
   lineas.forEach(l => { if (l.color) m[l.color] = (m[l.color] || 0) + l.cant; });
-  return Object.keys(m).map(c => m[c] + ' ' + c.toLowerCase()).join(', ');
+  return Object.keys(m).map(c => m[c] + ' ' + c).join(', ');
 }
 function avisarStockBajo(v) {
   const st = stockHoy();
@@ -1288,7 +1288,7 @@ function vistaVender() {
     const color = e.rot ? colRot : e.color;
     const s = st['pulsera:' + color];
     const det = [e.minutos > 0 ? (e.minutos % 60 ? e.minutos + ' min' : (e.minutos / 60) + (e.minutos === 60 ? ' hora' : ' horas')) : grupoEntrada(e) === 'parque' ? 'todo el día' : '',
-      String(color).toLowerCase()].filter(Boolean).join(' · ');
+      String(color)].filter(Boolean).join(' · ');
     return `<div class="item ${n ? 'on' : ''} ${sinPrecio ? 'off' : ''}" data-key="e-${esc(e.id)}">
       <button type="button" class="item-main" data-act="ent" data-v="${esc(e.id)}" ${sinPrecio ? 'disabled' : ''}>
         <span class="item-pul" style="--c:${colorHex(color)}"></span>
@@ -1395,7 +1395,7 @@ function tarjetaTurno(t) {
   const e = estadoTurno(t);
   return `<article class="g g-vivo ${e.cls}" data-key="t-${t.id}" data-act="edit" data-v="${t.v.id}">
     ${anillo(e, t.color)}
-    <div class="g-info"><b class="g-nom">Pulsera ${esc(String(t.color).toLowerCase())}</b>
+    <div class="g-info"><b class="g-nom">Pulsera ${esc(String(t.color))}</b>
       <div class="tags"><span class="tag pul" style="--c:${colorHex(t.color)}"><i></i>${esc(t.l.nombre)}</span><span class="tag">${plural(t.cant, 'pulsera', 'pulseras')}</span></div>
       <small>${esc(t.nombre)} · ${esc(e.txt)}</small></div>
   </article>`;
@@ -1403,7 +1403,7 @@ function tarjetaTurno(t) {
 function textoRotas(x) {
   const m = {};
   Calc.rotasDe(x).forEach(r => { m[r.color] = (m[r.color] || 0) + r.cant; });
-  return Object.keys(m).map(c => m[c] + ' ' + c.toLowerCase()).join(', ');
+  return Object.keys(m).map(c => m[c] + ' ' + c).join(', ');
 }
 function filaVenta(x) {
   const ls = Calc.lineasDe(x), ps = Calc.productosDe(x);
@@ -1535,7 +1535,7 @@ function vistaInventario() {
     ${movs.length ? movs.map(m => {
       const anul = m.estado === 'anulado';
       const signo = m.tipo === 'ingreso' ? '+' + m.cantidad : m.tipo === 'ajuste' ? (m.cantidad > 0 ? '+' : '') + m.cantidad : String(m.cantidad);
-      return `<div class="fila mov ${anul ? 'anulado' : ''}" data-key="mv-${m.id}"><span>${esc(tipoTxt[m.tipo] || m.tipo)}, ${esc(nombreItem(m.producto).toLowerCase())}<small>${esc(m.creadoPor || '')} a las ${esc(horaDe(m.creadoEn))}${m.nota ? '. ' + esc(m.nota) : ''}${anul ? '. Anulado por ' + esc(m.editadoPor || '') : ''}</small></span><b>${esc(signo)}</b>${anul || cerrado ? '' : `<button class="x" data-act="anular-mov" data-v="${m.id}" aria-label="Anular movimiento">×</button>`}</div>`;
+      return `<div class="fila mov ${anul ? 'anulado' : ''}" data-key="mv-${m.id}"><span>${esc(tipoTxt[m.tipo] || m.tipo)}, ${esc(nombreItem(m.producto))}<small>${esc(m.creadoPor || '')} a las ${esc(horaDe(m.creadoEn))}${m.nota ? '. ' + esc(m.nota) : ''}${anul ? '. Anulado por ' + esc(m.editadoPor || '') : ''}</small></span><b>${esc(signo)}</b>${anul || cerrado ? '' : `<button class="x" data-act="anular-mov" data-v="${m.id}" aria-label="Anular movimiento">×</button>`}</div>`;
     }).join('') : '<p class="muted" data-key="sin-mov">Nada anotado hoy. Las ventas se descuentan solas.</p>'}
   </section>
   <p class="pie">Para agregar productos o cambiar precios, usa las pestañas Productos y Entradas de la planilla.</p>`;
@@ -1969,7 +1969,7 @@ function vistaAjustes() {
     <h2 class="card-h">Entradas y juegos</h2>
     <p class="ayuda">Un cambio de precio vale para las ventas nuevas; las ya hechas guardan el precio que se cobró.</p>
     ${d.entradas.map(e => filaAdm('entrada', e.id, esc(e.nombre) + ' · ' + (e.gratis ? 'Gratis' : e.precio ? fmt(e.precio) : '<em>falta precio</em>'),
-      conTiempo(e) + ' · pulsera ' + esc(e.color ? e.color.toLowerCase() : 'del turno') + ' · ' + esc(lugaresTxt(e.sedes)) + (e.activo ? '' : ' · <em>no se vende</em>'),
+      conTiempo(e) + ' · pulsera ' + esc(e.color || 'del turno') + ' · ' + esc(lugaresTxt(e.sedes)) + (e.activo ? '' : ' · <em>no se vende</em>'),
       `<span class="pulsera-vis mini" style="--c:${e.color ? colorHex(e.color) : 'conic-gradient(#43a047 0 25%,#1e88e5 0 50%,#e53935 0 75%,#fdd835 0)'}"></span>`, !e.activo)).join('')}
     ${botonNuevo('entrada', 'Agregar entrada o juego')}
   </section>
