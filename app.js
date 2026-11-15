@@ -1351,7 +1351,7 @@ function vistaVender() {
         return `<button type="button" class="col-chip ${col === colRot ? 'on' : ''} ${ocupado ? 'ocupado' : ''}" data-act="pulsera" data-v="${esc(col)}"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span>${ocupado ? `<small>sale ${esc(ocupado.salida)}</small>` : ''}</button>`;
       }).join('')}</div>` : ''}
       ${lineas.filter(l => !l.rot).map(l => `<p class="sub-t">Color de ${esc(l.nombre)}</p>
-      <div class="chips colores-fijos" data-key="cf-${esc(l.id)}">${S.config.pulseras.map(col => `<button type="button" class="chip ${col === l.color ? 'on' : ''}" data-act="color-linea" data-f="${esc(l.id)}" data-v="${esc(col)}"><i class="chip-dot" style="background:${colorHex(col)}"></i>${esc(col)}</button>`).join('')}</div>`).join('')}
+      <div class="colores-media colores-fijos" data-key="cf-${esc(l.id)}">${S.config.pulseras.map(col => `<button type="button" class="col-chip ${col === l.color ? 'on' : ''}" data-act="color-linea" data-f="${esc(l.id)}" data-v="${esc(col)}"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span></button>`).join('')}</div>`).join('')}
       <p class="ayuda">Si se acabó un color, elige otro: el stock se descuenta del color que entregues.</p>
     </div>` : ''}
   </section>` : ''}
