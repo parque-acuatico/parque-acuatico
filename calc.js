@@ -42,6 +42,12 @@
     return out;
   }
 
+  /** Pulseras que se rompieron en una venta anulada (se cancelaron después de entregarlas): salen del stock sin cobro. */
+  function rotasDe(r) {
+    if (!r || r.estado !== 'anulado') return [];
+    return lineasDe(r).filter(l => l.rota && l.color).map(l => ({ id: 'pulsera:' + l.color, color: l.color, cant: +l.cant }));
+  }
+
   /**
    * Stock de un día por ítem (productos e ids "pulsera:Color").
    * inicio: último "Stock al abrir" del día; si no hay, lo que quedó el día anterior; si no, desconocido.
@@ -51,7 +57,7 @@
     const res = {};
     const vivos = (movs || []).filter(m => m.estado !== 'anulado');
     const usados = {};
-    (regs || []).filter(r => r.estado !== 'anulado').forEach(r => consumosDe(r).forEach(c => { usados[c.id] = (usados[c.id] || 0) + c.cant; }));
+    (regs || []).forEach(r => (r.estado === 'anulado' ? rotasDe(r) : consumosDe(r)).forEach(c => { usados[c.id] = (usados[c.id] || 0) + c.cant; }));
     ids.forEach(id => {
       const m = vivos.filter(x => x.producto === id);
       const ini = m.filter(x => x.tipo === 'inicial');
@@ -92,16 +98,25 @@
     const r = {
       ventas: vivos.length, pulseras: 0, gratis: 0, porEntrada: {}, porColor: {}, porProducto: {},
       porMedio: {}, bruto: 0, devol: 0, ventaEntradas: 0, ventaProductos: 0, unidades: 0,
-      totalGastos: 0, gastosCaja: 0, listaGastos: gas, porPersona: {}
+      totalGastos: 0, gastosCaja: 0, listaGastos: gas, porPersona: {}, rotas: 0
     };
     // Quién hizo qué: cada venta cuenta para quien la registró; anulaciones y ediciones para quien las hizo.
     const persona = n => {
       n = String(n || '').trim() || 'Sin nombre';
-      if (!r.porPersona[n]) r.porPersona[n] = { ventas: 0, monto: 0, efectivo: 0, debito: 0, otros: 0, pulseras: 0, gratis: 0, devol: 0, gastos: 0, anuladas: 0, editadas: 0 };
+      if (!r.porPersona[n]) r.porPersona[n] = { ventas: 0, monto: 0, efectivo: 0, debito: 0, otros: 0, pulseras: 0, gratis: 0, devol: 0, gastos: 0, anuladas: 0, editadas: 0, rotas: 0 };
       return r.porPersona[n];
     };
     (registros || []).forEach(v => {
-      if (v.estado === 'anulado') { if (v.editadoPor) persona(v.editadoPor).anuladas++; return; }
+      if (v.estado === 'anulado') {
+        const quien = persona(v.editadoPor || v.creadoPor);
+        if (v.editadoPor) quien.anuladas++;
+        rotasDe(v).forEach(x => {
+          quien.rotas += x.cant; r.rotas += x.cant;
+          if (!r.porColor[x.color]) r.porColor[x.color] = { cant: 0, gratis: 0, rotas: 0 };
+          r.porColor[x.color].rotas = (r.porColor[x.color].rotas || 0) + x.cant;
+        });
+        return;
+      }
       const pp = persona(v.creadoPor), t = +v.total || 0;
       pp.ventas++; pp.monto += t - (+v.devolucion || 0);
       if ((v.medio || 'Efectivo') === 'Efectivo') pp.efectivo += t; else if (v.medio === 'Débito') pp.debito += t; else pp.otros += t;
@@ -124,7 +139,7 @@
         if (l.gratis) r.gratis += +l.cant;
         r.ventaEntradas += (+l.cant) * (+l.precio || 0);
         if (l.color) {
-          if (!r.porColor[l.color]) r.porColor[l.color] = { cant: 0, gratis: 0 };
+          if (!r.porColor[l.color]) r.porColor[l.color] = { cant: 0, gratis: 0, rotas: 0 };
           r.porColor[l.color].cant += +l.cant;
           if (l.gratis) r.porColor[l.color].gratis += +l.cant;
         }
@@ -155,7 +170,7 @@
     return r;
   }
 
-  const api = { lineasDe, productosDe, totalVenta, consumosDe, stockDia, stockAntes, resumen };
+  const api = { lineasDe, productosDe, totalVenta, consumosDe, rotasDe, stockDia, stockAntes, resumen };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Calc = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

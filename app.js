@@ -562,7 +562,7 @@ async function pantallaEncendida() {
 function nuevaVenta() {
   return {
     nombre: '', ents: {}, prods: {}, medio: S.config.medios_pago[0], entrada: entradaPropuesta(), entradaAuto: true,
-    obs: '', colorRot: '', colorManual: false, devolucion: '', orig: null, abrir: ''
+    obs: '', colorRot: '', colorManual: false, devolucion: '', orig: null, abrir: '', colores: {}
   };
 }
 function ventaDesde(v) {
@@ -574,7 +574,7 @@ function ventaDesde(v) {
   return {
     nombre: v.nombre || '', ents, prods, medio, entrada: v.entrada, entradaAuto: false, obs: v.obs || '',
     colorRot: rot ? rot.color : '', colorManual: !!rot, devolucion: +v.devolucion ? String(v.devolucion) : '',
-    orig: { lineas: Calc.lineasDe(v), productos: Calc.productosDe(v), medio: v.medio }
+    orig: { lineas: Calc.lineasDe(v), productos: Calc.productosDe(v), medio: v.medio }, abrir: '', colores: {}
   };
 }
 function entradaAutoActiva() { return S.venta.entradaAuto && !S.editId && S.fecha === hoy(); }
@@ -594,7 +594,7 @@ function lineasDelCarrito() {
     const base = o || (e ? { id, nombre: e.nombre, precio: e.precio, minutos: e.minutos, color: e.color, rot: e.rot, gratis: e.gratis } : null);
     if (!base) return;
     out.push({ id, nombre: base.nombre, cant: +f.ents[id], precio: +base.precio || 0, minutos: +base.minutos || 0,
-      color: base.rot ? color : base.color, rot: !!base.rot, gratis: !!base.gratis });
+      color: base.rot ? color : (f.colores && f.colores[id]) || base.color, rot: !!base.rot, gratis: !!base.gratis });
   });
   // en el orden de la planilla
   const orden = id => { const i = S.config.entradas.findIndex(e => e.id === id); return i < 0 ? 99 : i; };
@@ -674,13 +674,19 @@ function avisarStockBajo(v) {
   if (bajos.length) setTimeout(() => toast('Quedan pocas: ' + bajos.map(x => nombreItem(x.c.id) + ' ' + x.s.queda).join(', '), 'warn'), 3300);
 }
 
-function cambiarEstado(id, estado) {
+function cambiarEstado(id, estado, rotas) {
   if (bloqueado()) return;
   const r = S.registros.find(x => x.id === id); if (!r) return;
-  const msg = estado === 'anulado' ? '¿Anular "' + r.nombre + '"? Antes recupera o corta las pulseras entregadas. Quedará registrado quién la anuló.' : '¿Restaurar "' + r.nombre + '"?';
-  if (!confirm(msg)) return;
-  guardarLocal('registro', Object.assign({}, r, { estado, editadoPor: S.user.nombre, editadoEn: nowLocal() }));
-  toast(estado === 'anulado' ? 'Venta anulada' : 'Venta restaurada');
+  const conPulseras = Calc.lineasDe(r).some(l => l.color);
+  // Con pulseras se pregunta qué pasó con ellas (ver panel en Vender); sin pulseras basta confirmar.
+  if (estado === 'anulado' && conPulseras && rotas == null) { S.venta.abrir = 'anular'; renderTab(); setTimeout(() => { const el = document.querySelector('[data-key=anular-panel]'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: REDUCE ? 'auto' : 'smooth' }); }, 30); return; }
+  if (!conPulseras || estado !== 'anulado') {
+    const msg = estado === 'anulado' ? '¿Anular "' + r.nombre + '"? No se cobra y queda registrado quién la anuló.' : '¿Restaurar "' + r.nombre + '"?';
+    if (!confirm(msg)) return;
+  }
+  const lineas = Calc.lineasDe(r).map(l => { const x = Object.assign({}, l); delete x.rota; if (estado === 'anulado' && rotas && x.color) x.rota = true; return x; });
+  guardarLocal('registro', Object.assign({}, r, { estado, lineas, editadoPor: S.user.nombre, editadoEn: nowLocal() }));
+  toast(estado !== 'anulado' ? 'Venta restaurada' : rotas ? 'Venta anulada: sin cobro, pulseras descontadas como rotas' : 'Venta anulada: las pulseras vuelven al stock', 'ok');
   irA('grupos', () => { S.editId = null; S.venta = nuevaVenta(); });
 }
 
@@ -756,7 +762,7 @@ function ordenColores(cols) {
   const o = c => { const i = S.config.pulseras.indexOf(c); return i < 0 ? 99 : i; };
   return cols.slice().sort((a, b) => o(a) - o(b));
 }
-function textoPorColor(R) { return Object.keys(R.porColor).map(c => c + ' ' + R.porColor[c].cant).join(' · '); }
+function textoPorColor(R) { return Object.keys(R.porColor).map(c => c + ' ' + R.porColor[c].cant + (R.porColor[c].rotas ? ' (+' + R.porColor[c].rotas + ' rotas)' : '')).join(' · '); }
 function cerrarCaja() {
   if (bloqueado()) return;
   const R = Calc.resumen(S.registros, S.gastos, S.config);
@@ -800,7 +806,7 @@ function textoResumen() {
   const st = stockHoy();
   const L = [];
   L.push('🌊 ' + S.sede + ' — ' + fechaLarga(S.fecha));
-  L.push('Ventas: ' + R.ventas + ' · Pulseras: ' + R.pulseras + (R.gratis ? ' (' + R.gratis + ' gratis)' : ''));
+  L.push('Ventas: ' + R.ventas + ' · Pulseras: ' + R.pulseras + (R.gratis ? ' (' + R.gratis + ' gratis)' : '') + (R.rotas ? ' · Rotas por cancelación: ' + R.rotas : ''));
   Object.keys(R.porEntrada).forEach(k => { const e = R.porEntrada[k]; L.push(e.nombre + ': ' + e.cant + (e.gratis ? '' : ' (' + fmt(e.monto) + ')')); });
   Object.keys(R.porProducto).forEach(k => L.push(R.porProducto[k].nombre + ': ' + R.porProducto[k].cant + ' (' + fmt(R.porProducto[k].monto) + ')'));
   L.push('');
@@ -1334,7 +1340,7 @@ function vistaVender() {
   ${lineas.length ? `<section class="entrega" data-key="entrega">
     <p class="entrega-t">Entrega ${plural(nPul, 'pulsera', 'pulseras')}</p>
     <div class="entrega-pul">${Object.keys(porColor).map(col => `<div class="ep" data-key="ep-${esc(col)}" style="--c:${colorHex(col)}"><i></i><b>${porColor[col].cant}</b><span>${esc(col)}${porColor[col].sale ? `<small>salen ${porColor[col].sale}</small>` : ''}</span></div>`).join('')}</div>
-    ${conTiempo.length || hayRot ? `<button type="button" class="link" data-act="ver-mas" data-v="hora">${f.abrir === 'hora' ? 'Listo' : 'Cambiar hora' + (hayRot ? ' o color' : '')}</button>` : ''}
+    <button type="button" class="link" data-act="ver-mas" data-v="hora">${f.abrir === 'hora' ? 'Listo' : conTiempo.length ? 'Cambiar hora o color' : 'Cambiar color'}</button>
     ${f.abrir === 'hora' ? `<div class="ajuste" data-key="aj-hora">
       ${conTiempo.length ? `<p class="sub-t">Entran a las</p>
       <div class="hora-paso"><button type="button" data-act="hora" data-v="-5" aria-label="5 minutos antes">−5</button><b>${esc(entrada)}</b><button type="button" data-act="hora" data-v="5" aria-label="5 minutos después">+5</button></div>
@@ -1344,6 +1350,9 @@ function vistaVender() {
         const ocupado = cruzan.find(t => t.color === col);
         return `<button type="button" class="col-chip ${col === colRot ? 'on' : ''} ${ocupado ? 'ocupado' : ''}" data-act="pulsera" data-v="${esc(col)}"><i style="background:${colorHex(col)}"></i><span>${esc(col)}</span>${ocupado ? `<small>sale ${esc(ocupado.salida)}</small>` : ''}</button>`;
       }).join('')}</div>` : ''}
+      ${lineas.filter(l => !l.rot).map(l => `<p class="sub-t">Color de ${esc(l.nombre)}</p>
+      <div class="chips colores-fijos" data-key="cf-${esc(l.id)}">${S.config.pulseras.map(col => `<button type="button" class="chip ${col === l.color ? 'on' : ''}" data-act="color-linea" data-f="${esc(l.id)}" data-v="${esc(col)}"><i class="chip-dot" style="background:${colorHex(col)}"></i>${esc(col)}</button>`).join('')}</div>`).join('')}
+      <p class="ayuda">Si se acabó un color, elige otro: el stock se descuenta del color que entregues.</p>
     </div>` : ''}
   </section>` : ''}
 
@@ -1359,7 +1368,13 @@ function vistaVender() {
       <input id="f-dev" class="inp" data-field="devolucion" inputmode="numeric" value="${esc(f.devolucion)}" placeholder="$0">` : ''}
     </div>` : `<button type="button" class="link" data-act="ver-mas" data-v="nota" data-key="l-nota">+ Agregar nombre o nota</button>`}
   </section>
-  ${prev ? `<button class="btn quitar" data-act="${prev.estado === 'anulado' ? 'restaurar' : 'anular'}" data-v="${prev.id}">${prev.estado === 'anulado' ? 'Restaurar esta venta' : 'Anular esta venta'}</button>` : ''}
+  ${prev && f.abrir === 'anular' ? `<section class="paso anular-panel" data-key="anular-panel">
+    <h2 class="paso-h">Anular ${esc(prev.nombre)}</h2>
+    <p class="ayuda">No se cobra nada. ¿Qué pasó con las pulseras que ya se entregaron?</p>
+    <button class="btn" data-act="anular-ok" data-f="${prev.id}" data-v="devueltas"><b>Las devolvieron enteras</b><small>Vuelven al stock</small></button>
+    <button class="btn coral" data-act="anular-ok" data-f="${prev.id}" data-v="rotas"><b>Se tuvieron que romper</b><small>Se descuentan del stock como rotas</small></button>
+    <button class="link" data-act="ver-mas" data-v="anular">No anular</button>
+  </section>` : prev ? `<button class="btn quitar" data-act="${prev.estado === 'anulado' ? 'restaurar' : 'anular'}" data-v="${prev.id}">${prev.estado === 'anulado' ? 'Restaurar esta venta' : 'Cancelaron: anular esta venta'}</button>` : ''}
   <div class="accion" data-key="accion">
     <div class="acc-total"><small>${resumenCarrito ? esc(resumenCarrito) : 'Toca lo que compran'}${prev && dev ? ' · devolución ' + fmt(dev) : ''}</small><b>${cnt(total)}</b></div>
     <button class="btn coral" data-act="guardar" ${S.servidorViejo || (!lineas.length && !prods.length) ? 'disabled' : ''}>${prev ? 'Guardar' : 'Cobrar'}</button>
@@ -1385,6 +1400,11 @@ function tarjetaTurno(t) {
       <small>${esc(t.nombre)} · ${esc(e.txt)}</small></div>
   </article>`;
 }
+function textoRotas(x) {
+  const m = {};
+  Calc.rotasDe(x).forEach(r => { m[r.color] = (m[r.color] || 0) + r.cant; });
+  return Object.keys(m).map(c => m[c] + ' ' + c.toLowerCase()).join(', ');
+}
 function filaVenta(x) {
   const ls = Calc.lineasDe(x), ps = Calc.productosDe(x);
   const partes = ls.map(l => l.cant + ' ' + l.nombre).concat(ps.map(p => p.nombre + ' ×' + p.cant));
@@ -1394,6 +1414,7 @@ function filaVenta(x) {
     <span class="pul-dots">${ls.filter(l => l.color).map(l => `<i style="--c:${colorHex(l.color)}"></i>`).join('') || '<i style="--c:var(--line)"></i>'}</span>
     <div class="g-info"><b class="g-nom">${esc(x.nombre)} <span class="muted">${esc(x.entrada)}</span></b><small>${esc(partes.join(', '))}</small>
       ${+x.devolucion ? `<small class="g-dev">Devolución de ${fmt(x.devolucion)}</small>` : ''}
+      ${Calc.rotasDe(x).length ? `<small class="g-dev">Pulseras rotas: ${esc(textoRotas(x))}</small>` : ''}
       ${x.obs ? `<small class="g-obs">${esc(x.obs)}</small>` : ''}
       <small class="g-quien">${esc(quien)}</small></div>
     <div class="g-monto"><b>${fmt(x.total)}</b><small>${esc(x.medio)}</small></div>
@@ -1477,13 +1498,13 @@ function vistaInventario() {
   };
   const pulCard = col => {
     const s = st['pulsera:' + col] || { queda: null, vendidas: 0 };
-    const g = (R.porColor[col] || {}).gratis || 0;
+    const g = (R.porColor[col] || {}).gratis || 0, rot = (R.porColor[col] || {}).rotas || 0;
     const cls = s.queda == null ? 'sin' : s.queda < 0 ? 'neg' : s.queda <= 10 ? 'bajo' : '';
     return `<button type="button" class="pul-card ${cls} ${f.producto === 'pulsera:' + col ? 'sel' : ''}" data-key="pc-${esc(col)}" data-act="iset" data-f="producto" data-v="pulsera:${esc(col)}">
       <span class="pc-banda" style="--c:${colorHex(col)}"></span>
       <span class="pc-nom">${esc(col)}</span>
       <b>${s.queda == null ? '?' : s.queda}</b><small>${s.queda == null ? 'falta contar' : 'quedan'}</small>
-      <span class="pc-hoy">${s.vendidas ? 'Entregadas hoy: ' + s.vendidas + (g ? ' (' + g + ' gratis)' : '') : 'Sin entregas hoy'}</span>
+      <span class="pc-hoy">${s.vendidas ? 'Salieron hoy: ' + s.vendidas + ([g ? g + ' gratis' : '', rot ? rot + ' rotas' : ''].filter(Boolean).length ? ' (' + [g ? g + ' gratis' : '', rot ? rot + ' rotas' : ''].filter(Boolean).join(', ') + ')' : '') : 'Sin entregas hoy'}</span>
     </button>`;
   };
 
@@ -1529,7 +1550,7 @@ function tablaPersonas(pp, key) {
     <p class="ayuda">Cada venta queda a nombre de quien la anotó. Si algo no cuadra, aquí se ve quién cobró cuánto y en qué.</p>
     ${ns.map(n => {
       const x = pp[n];
-      const extra = [x.devol ? 'devolvió ' + fmt(x.devol) : '', x.gastos ? 'gastos ' + fmt(x.gastos) : '', x.editadas ? plural(x.editadas, 'edición', 'ediciones') : '', x.anuladas ? plural(x.anuladas, 'anulación', 'anulaciones') : ''].filter(Boolean);
+      const extra = [x.devol ? 'devolvió ' + fmt(x.devol) : '', x.gastos ? 'gastos ' + fmt(x.gastos) : '', x.editadas ? plural(x.editadas, 'edición', 'ediciones') : '', x.anuladas ? plural(x.anuladas, 'anulación', 'anulaciones') : '', x.rotas ? plural(x.rotas, 'pulsera rota', 'pulseras rotas') : ''].filter(Boolean);
       return `<div class="persona" data-key="pp-${esc(n)}">
         <span class="avatar sm">${inicial(n)}</span>
         <div class="pe-txt"><b>${esc(n)}</b><small>${plural(x.ventas, 'venta', 'ventas')} · ${plural(x.pulseras, 'pulsera', 'pulseras')}${x.gratis ? ' (' + x.gratis + ' gratis)' : ''}</small>
@@ -1576,8 +1597,8 @@ function vistaCaja() {
     <h2 class="card-h">Pulseras entregadas</h2>
     ${Object.keys(R.porColor).length ? ordenColores(Object.keys(R.porColor)).map(col => {
       const pc = R.porColor[col], s = st['pulsera:' + col];
-      return `<div class="fila pul" data-key="pk-${esc(col)}"><span><i class="chip-dot" style="background:${colorHex(col)}"></i>${esc(col)}<small>${pc.gratis ? pc.gratis + ' gratis (free pass y cortesía)' : 'Todas pagadas'}${s && s.queda != null ? ' · quedan ' + s.queda : ''}</small></span><b>${pc.cant}</b></div>`;
-    }).join('') + fila('Total', `${R.pulseras}`, 'tot', 'pk-tot') : '<p class="muted" data-key="sin-pul">Todavía no se entregan pulseras.</p>'}
+      return `<div class="fila pul" data-key="pk-${esc(col)}"><span><i class="chip-dot" style="background:${colorHex(col)}"></i>${esc(col)}<small>${[pc.gratis ? pc.gratis + ' gratis' : '', pc.rotas ? pc.rotas + ' rotas por cancelación' : ''].filter(Boolean).join(' · ') || 'Todas pagadas'}${s && s.queda != null ? ' · quedan ' + s.queda : ''}</small></span><b>${pc.cant}</b></div>`;
+    }).join('') + fila('Total' + (R.rotas ? ` <small>+ ${R.rotas} rotas</small>` : ''), `${R.pulseras}`, 'tot', 'pk-tot') : '<p class="muted" data-key="sin-pul">Todavía no se entregan pulseras.</p>'}
   </section>
 
   ${tablaPersonas(R.porPersona, 'personas')}
@@ -2064,6 +2085,8 @@ const ACT = {
     irA('vender', () => { S.editId = v; S.venta = ventaDesde(r); });
   },
   anular(v) { cambiarEstado(v, 'anulado'); },
+  'anular-ok'(v, el) { cambiarEstado(el.dataset.f, 'anulado', v === 'rotas'); },
+  'color-linea'(v, el) { S.venta.colores[el.dataset.f] = v; renderTab(); },
   restaurar(v) { cambiarEstado(v, 'ok'); },
   iset(v, el) { S.iform[el.dataset.f] = v; renderTab(); if (el.dataset.f === 'tipo') { const i = $('#i-cant'); if (i) i.focus(); } },
   'guardar-mov': guardarMovimiento,
