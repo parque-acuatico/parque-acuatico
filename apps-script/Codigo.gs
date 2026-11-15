@@ -756,7 +756,7 @@ function archivoDelDia(cierre) {
   add([]);
 
   add(['Pulseras por color'], 'seccion');
-  add(['Color', 'Entregadas', 'Gratis', 'Rotas', 'Al abrir + llegaron', 'Quedan'], 'cabecera');
+  add(['Color', 'Entregadas', 'Gratis', 'Rotas', 'Había', 'Quedan'], 'cabecera');
   cfg.pulseras.forEach(col => {
     const s = stock['pulsera:' + col] || {};
     const c = R.porColor[col] || { cant: 0, gratis: 0, rotas: 0 };
@@ -777,10 +777,10 @@ function archivoDelDia(cierre) {
   add([]);
 
   add(['Quién registró qué'], 'seccion');
-  add(['Persona', 'Ventas', 'Efectivo', 'Débito', 'Total cobrado', 'Anuló / editó'], 'cabecera');
+  add(['Persona', 'Ventas', 'Efectivo', 'Débito', 'Total cobrado', 'Anuló / editó'], 'cabecera');  // anuladas, pulseras rotas y ediciones
   Object.keys(R.porPersona).forEach(n => {
     const x = R.porPersona[n];
-    f = add([n, x.ventas, x.efectivo, x.debito, x.monto, (x.anuladas || x.editadas) ? x.anuladas + ' / ' + x.editadas : '']);
+    f = add([n, x.ventas, x.efectivo, x.debito, x.monto, [x.anuladas ? x.anuladas + (x.anuladas === 1 ? ' anulada' : ' anuladas') + (x.rotas ? ' (' + x.rotas + ' rotas)' : '') : '', x.editadas ? x.editadas + (x.editadas === 1 ? ' edición' : ' ediciones') : ''].filter(String).join(', ')]);
     dinero(f, 3, 1, 3);
   });
   add(['Cerró la caja: ' + cierre.cerradoPor], 'nota');
